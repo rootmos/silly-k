@@ -135,6 +135,13 @@
 (define malfunction-print-space
   `(apply (global $Pervasives $print_char) 32))
 
+(define (malfunction-error reason code)
+  `(seq (apply (global $Pervasives $prerr_endline) ,reason)
+        (apply (global $Pervasives $exit) ,code)))
+
+(define malfunction-length-error
+  (malfunction-error "length error" 3))
+
 (define (malfunction-print-vector l)
   (let ([printer (malfunction-print-integer `(load ,l $i))])
     `(let ($n (length ,l))
@@ -163,10 +170,26 @@
                       (let ($w (apply $f (load $v $i)))
                         (store $v $i $w))
                       (apply $go (+ $i 1)))
-                    ,malfunction-unit))))
-         (seq
-           (apply $go 0)
-           $v)))))
+                    $v))))
+         (apply $go 0)))))
+
+(define malfunction-zip-lambda
+  `(lambda ($f $v $w)
+     (let
+       ($n (length $v))
+       ($m (length $w))
+       (if (== $n $m)
+         (let
+           (rec
+             ($go (lambda ($i)
+                    (if (< $i $n)
+                      (seq
+                        (let ($u (apply $f (load $v $i) (load $w $i)))
+                          (store $v $i $u))
+                        (apply $go (+ $i 1)))
+                      $v))))
+           (apply $go 0))
+         ,malfunction-length-error))))
 
 (define (make-malfunction-vector l)
   (letrec ([go (lambda (i k)
@@ -196,14 +219,18 @@
         (let ([a (Expr e0)]
               [b (Expr e1)])
           `(let ($a ,a)
-             (let ($f (lambda ($x) (+ $a $x)))
-               (apply $map $f ,b))))]
+             (apply $map (lambda ($x) (+ $a $x)) ,b)))]
+       [(eq? pf 'pointwise-addition)
+        (let ([a (Expr e0)]
+              [b (Expr e1)])
+          `(apply $zip (lambda ($x $y) (+ $x $y)) ,a ,b))]
        [else (error 'output-malfunction "unsupported primitive function" pf)])]
     [else (error 'output-malfunction "unsupported expr")])
   (Program : Program (p) -> *()
     [(program ,e)
        `(module
           ($map ,malfunction-map-lambda)
+          ($zip ,malfunction-zip-lambda)
           ($x ,[Expr e])
           (_ ,(malfunction-print k '$x))
           (_ ,malfunction-print-newline)
@@ -213,8 +240,8 @@
 (compile-and-run "1")
 (compile-and-run "1 2 3")
 (compile-and-run "1+2 3 4")
-
-(compiler "1 2+3 4")
+(compile-and-run "1 2+3 4 5")
+(compile-and-run "1 2+3 4")
 
 (define (compiler s)
   (let-values
