@@ -1,0 +1,6 @@
+[submodule "nanopass-framework-scheme"]
+	path = nanopass-framework-scheme
+	url = git@github.com:nanopass/nanopass-framework-scheme.git
+[submodule "lalr-scm"]
+	path = lalr-scm
+	url = git@github.com:rootmos/lalr-scm.git
