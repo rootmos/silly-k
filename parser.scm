@@ -44,21 +44,22 @@
               (expect: 0)
               (PLUS NUM MINUS LPAREN RPAREN SLASH QUOTE)
               (expr (num) : $1
-                    (verb expr) : (list $1 #f $2)
-                    (expr verb expr) : (list $2 $1 $3)
-                    (verb adverb expr) : (list $2 $1 #f $3)
-                    (expr verb adverb expr) : (list $3 $2 $1 $4))
+                    (verb expr) : `(apply ,$1 #f ,$2)
+                    (expr verb expr) : `(apply ,$2 ,$1 ,$3))
               (exprs (exprs expr) : (append $1 (list $2))
                      (expr)       : (list $1)
                      ()           : '())
               (verb (PLUS) : 'plus
-                    (MINUS) : 'minus)
+                    (MINUS) : 'minus
+                    (verb adverb) : `(adverb ,$2 ,$1))
               (adverb (SLASH) : 'over
                       (QUOTE) : 'each)
               (num (num NUM) : (append $1 (list $2))
                    (NUM) : (list $1)))]
           [error-handler (lambda (message . args) (error 'parse-silly-k message args))])
       (parser lex error-handler))))
+(with-input-from-string "+//1 3" parse-silly-k)
+(with-input-from-string "2+//1 3" parse-silly-k)
 (with-input-from-string "1 2+3" parse-silly-k)
 (with-input-from-string "+1 2" parse-silly-k)
 (with-input-from-string "+/9 2" parse-silly-k)

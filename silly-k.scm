@@ -22,38 +22,34 @@
     (verb (v))
     (adverb (a))
     (num-vector (nv)))
+  (entry Expr)
+  (Fun (f)
+       v
+       (adverb a f))
   (Expr (e)
         nv
-        (verb v e)
-        (verb v e0 e1)
-        (adverb a v e)
-        (adverb a v e0 e1)))
+        (apply f e)
+        (apply f e0 e1)))
 (define-pass ast-to-Lsrc : * (e) -> Lsrc ()
+  (Fun : * (f) -> Fun ()
+    (cond
+      [(verb? f) f]
+      [(and (list f) (eq? (car f) 'adverb))
+       (let ([v (cadr f)]
+             [f^ (Fun (caddr f))])
+         `(adverb ,v ,f^))]))
   (Expr : * (e) -> Expr ()
     (cond
       [(num-vector? e) e]
-      [(verb? (car e))
-       (let ([v (car e)]
-             [r (caddr e)])
-         (if (cadr e)
-           `(verb ,v ,(Expr (cadr e)) ,r)
-           `(verb ,v ,r)))]
-      [(adverb? (car e))
-       (let ([a (car e)]
-             [v (cadr e)]
-             [r (Expr (cadddr e))])
+      [(eq? (car e) 'apply)
+       (let ([v (Fun (cadr e))]
+             [r (cadddr e)])
          (if (caddr e)
-           `(adverb ,a ,v ,(Expr (caddr e)) ,r)
-           `(adverb ,a ,v ,r)))]
+           `(apply ,v ,(Expr (caddr e)) ,r)
+           `(apply ,v ,r)))]
       [else e]
       ))
   (Expr e))
-(ast-to-Lsrc (parse-silly-k-string "1 2"))
-(ast-to-Lsrc (parse-silly-k-string "+1 2"))
-(ast-to-Lsrc (parse-silly-k-string "1+2 3"))
-(ast-to-Lsrc (parse-silly-k-string "1 2+3 4"))
-(ast-to-Lsrc (parse-silly-k-string "+/1 2"))
-(ast-to-Lsrc (parse-silly-k-string "7+/1 2"))
 
 (define-language
   L1
@@ -61,31 +57,162 @@
   (terminals
     (+ (number (n))))
   (Expr (e)
-        (+ n)))
+        (- nv)
+        (+ (scalar n))
+        (+ (vector nv))))
 
-(define-pass introduce-scalars : Lsrc (e) -> L1 ()
+(define-pass differentiate-scalars : Lsrc (e) -> L1 ()
   (Expr : Expr (e) -> Expr ()
     [,nv (if (= 1 (length nv))
-           (car nv)
-           nv)]))
-(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2")))
-(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+1 2")))
-(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1+2 3")))
-(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2+3 4")))
-(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+/1 2")))
-(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "7+/1 2")))
+           `(scalar ,[car nv])
+           `(vector ,nv))]))
 
-(define-pass analyze-lengths : L1 (e) -> L1 (l)
+(define functions
+  '(((plus vector vector) . (pointwise-addition vector))
+    ((plus scalar vector) . (distribute-addition vector))
+    ((plus scalar scalar) . (scalar-addition scalar))
+    ))
+
+(define primfun?
+  (lambda (x)
+    (not (not (memq x '(pointwise-addition distribute-addition scalar-addition))))))
+
+(define-language
+  L2
+  (extends L1)
+  (terminals
+    (+ (primfun (pf))))
+  (Fun (f)
+       (- v)
+       (- (adverb a f)))
+  (Expr (e)
+        (- (apply f e))
+        (+ (apply pf e))
+        (- (apply f e0 e1))
+        (+ (apply pf e0 e1))))
+
+(define-pass choose-primitive-functions : L1 (e) -> L2 (k)
   (Expr : Expr (e) -> Expr (#f)
-    [,n (values n 'scalar)]
-    [,nv (values nv (list 'vector (length nv)))]
-    [(verb ,v ,e)
+    [(scalar ,n) (values `(scalar ,n) 'scalar)]
+    [(vector ,nv) (values `(vector ,nv) 'vector)]
+    [(apply ,v ,e)
      (let-values ([(e^ l) (Expr e)])
-       (values `(verb ,v ,e^) l))])
+       (let* ([fk (list v #f l)]
+              [mf (assoc fk functions)])
+         (if mf
+           (values `(apply ,[cadr mf] ,e^) (caddr mf))
+           (error 'choose-primitive-functions "unsupported combination" fk))))]
+    [(apply ,v ,e0 ,e1)
+     (let-values ([(e0^ l0) (Expr e0)]
+                  [(e1^ l1) (Expr e1)])
+       (let* ([fk (list v l0 l1)]
+              [mf (assoc fk functions)])
+         (if mf
+           (values `(apply ,[cadr mf] ,e0^ ,e1^) (caddr mf))
+           (error 'choose-primitive-functions "unsupported combination" fk))))]
+    [else (error 'choose-primitive-functions "unsupported verb")])
   (Expr e))
-(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2"))))
-(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+1 2"))))
-(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1+2 3"))))
-(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2+3 4"))))
-(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+/1 2"))))
-(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "7+/1 2"))))
+
+(define-language L3
+  (extends L2)
+  (entry Program)
+  (Program (p)
+           (+ (program e))))
+
+(define-pass wrap : L2 (e) -> L3 ()
+  (Expr : Expr (e) -> Expr ())
+  `(program ,(Expr e)))
+
+(define (malfunction-print-integer i)
+  `(apply (global $Pervasives $print_int) ,i))
+
+(define malfunction-unit
+  '(block (tag 0)))
+
+(define malfunction-print-newline
+  `(apply (global $Pervasives $print_newline) ,malfunction-unit))
+
+(define malfunction-print-space
+  `(apply (global $Pervasives $print_char) 32))
+
+(define (malfunction-print-vector l)
+  (let ([printer (malfunction-print-integer `(load ,l $i))])
+    `(let ($n (length ,l))
+       (let
+         (rec
+           ($go (lambda ($i)
+                  (if (< $i $n)
+                    (seq
+                      ,printer
+                      (if (< (+ $i 1) $n)
+                        ,malfunction-print-space
+                        ,malfunction-unit)
+                      (apply $go (+ $i 1)))
+                    ,malfunction-unit))))
+         (apply $go 0)))))
+
+(define (make-malfunction-vector l)
+  (letrec ([go (lambda (i k)
+                 (if (null? k)
+                   '()
+                   (cons `(store $v ,i ,(car k)) (go (+ i 1) (cdr k)))))])
+    (let ([body (append '(seq) (go 0 l) '($v))])
+      `(let ($v (makevec ,(length l) 0)) ,body))))
+
+(define (malfunction-print kind x)
+  (cond
+    [(eq? kind 'scalar) (malfunction-print-integer x)]
+    [(eq? kind 'vector) (malfunction-print-vector x)]
+    [else (error 'malfunction-print "unknown kind" kind)]))
+
+(define-pass output-malfunction : L3 (e k) -> * ()
+  (Expr : Expr (e) -> * ()
+    [(scalar ,n) n]
+    [(vector ,nv) (make-malfunction-vector nv)]
+    [(apply ,pf ,e0 ,e1)
+     (cond
+       [(eq? pf 'scalar-addition)
+        (let ([a (Expr e0)]
+              [b (Expr e1)])
+          `(+ ,a ,b))]
+       [else (error 'output-malfunction "unsupported primitive function" pf)])]
+    [else (error 'output-malfunction "unsupported expr")])
+  (Program : Program (p) -> *()
+    [(program ,e)
+       `(module
+          ($x ,[Expr e])
+          (_ ,(malfunction-print k '$x))
+          (_ ,malfunction-print-newline)
+          (export))
+     ]))
+
+(compile-and-run "1 2 3")
+(compile-and-run "1")
+(compile-and-run "1+2")
+
+(compiler "1 2+3 4")
+
+(define (compiler s)
+  (let-values
+    ([(e k)
+      (choose-primitive-functions
+        (differentiate-scalars
+          (ast-to-Lsrc
+            (parse-silly-k-string s))))])
+    (output-malfunction (wrap e) k)))
+
+(define compile-malfunction
+  (lambda (out mlf)
+    (with-temporary-file "silly.XXXXXX" (fn p)
+      (write mlf p)
+      (flush-output-port p)
+      (assert (= 0 (system (format "opam config exec -- malfunction compile -o ~s ~s" out fn))))
+      )))
+
+(define (compile e)
+  (compile-malfunction "a.out" (compiler e)))
+
+(define (compile-and-run e)
+  (compile e)
+  (assert (= 0 (system "./a.out")))
+  (void))
