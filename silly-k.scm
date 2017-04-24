@@ -55,3 +55,16 @@
 (ast-to-Lsrc (parse-silly-k-string "+/1 2"))
 (ast-to-Lsrc (parse-silly-k-string "7+/1 2"))
 
+(define-pass analyze-lengths : Lsrc (e) -> Lsrc (l)
+  (Expr : Expr (e) -> Expr (#f)
+    [,nv (values nv (length nv))]
+    [(verb ,v ,e)
+     (let-values ([(e^ l) (Expr e)])
+       (values `(verb ,v ,e^) l))])
+  (Expr e))
+(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "1 2")))
+(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "+1 2")))
+(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "1+2 3")))
+(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "1 2+3 4")))
+(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "+/1 2")))
+(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "7+/1 2")))
