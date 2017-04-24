@@ -21,36 +21,36 @@
   (terminals
     (verb (v))
     (adverb (a))
-    (number (n)))
+    (num-vector (nv)))
   (Expr (e)
-        (n* ...)
-        (verb v e* ...)
-        (verb-with-left v e e* ...)
-        (adverb a v e* ...)
-        (adverb-with-left a v e e* ...)
-        ))
+        nv
+        (verb v e)
+        (verb v e0 e1)
+        (adverb a v e)
+        (adverb a v e0 e1)))
 (define-pass ast-to-Lsrc : * (e) -> Lsrc ()
   (Expr : * (e) -> Expr ()
     (cond
-      [(num-vector? e) `(,e ...)]
+      [(num-vector? e) e]
       [(verb? (car e))
        (let ([v (car e)]
-             [es (map Expr (cddr e))])
+             [r (caddr e)])
          (if (cadr e)
-           `(verb-with-left ,v ,[Expr (cadr e)] ,es ...)
-           `(verb ,v ,es ...)))]
+           `(verb ,v ,(Expr (cadr e)) ,r)
+           `(verb ,v ,r)))]
       [(adverb? (car e))
        (let ([a (car e)]
              [v (cadr e)]
-             [es (map Expr (cdddr e))])
+             [r (Expr (cadddr e))])
          (if (caddr e)
-           `(adverb-with-left ,a ,v ,[Expr (caddr e)] ,es ...)
-           `(adverb ,a ,v ,es ...)))]
+           `(adverb ,a ,v ,(Expr (caddr e)) ,r)
+           `(adverb ,a ,v ,r)))]
       [else e]
       ))
   (Expr e))
 (ast-to-Lsrc (parse-silly-k-string "1 2"))
 (ast-to-Lsrc (parse-silly-k-string "+1 2"))
+(ast-to-Lsrc (parse-silly-k-string "1+2 3"))
 (ast-to-Lsrc (parse-silly-k-string "1 2+3 4"))
 (ast-to-Lsrc (parse-silly-k-string "+/1 2"))
 (ast-to-Lsrc (parse-silly-k-string "7+/1 2"))

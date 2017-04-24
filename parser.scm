@@ -44,15 +44,13 @@
               (expect: 0)
               (PLUS NUM MINUS LPAREN RPAREN SLASH QUOTE)
               (expr (num) : $1
-                    (verb exprs) : `(,$1 #f . ,$2)
-                    (expr verb exprs) : `(,$2 ,$1 . ,$3)
-                    (verb adverb exprs) : `(,$2 ,$1 #f . ,$3)
-                    (expr verb adverb exprs) : `(,$3 ,$2 ,$1 . ,$4))
+                    (verb expr) : (list $1 #f $2)
+                    (expr verb expr) : (list $2 $1 $3)
+                    (verb adverb expr) : (list $2 $1 #f $3)
+                    (expr verb adverb expr) : (list $3 $2 $1 $4))
               (exprs (exprs expr) : (append $1 (list $2))
                      (expr)       : (list $1)
                      ()           : '())
-              (dyad (verb) : `(dyadic ,$1))
-              (monad (verb) : `(monadic ,$1))
               (verb (PLUS) : 'plus
                     (MINUS) : 'minus)
               (adverb (SLASH) : 'over
@@ -65,12 +63,6 @@
 (with-input-from-string "+1 2" parse-silly-k)
 (with-input-from-string "+/9 2" parse-silly-k)
 (with-input-from-string "-'9 2" parse-silly-k)
-
-; (with-input-from-string "+" parse-silly)
-; (with-input-from-string "+ 2" parse-silly)
-; (with-input-from-string "+ 1 2" parse-silly)
-; (with-input-from-string "+ 1 2 3" parse-silly)
-; (with-input-from-string "+(+1 2)3" parse-silly)
 
 (define (parse-silly-k-string s)
   (with-input-from-string s parse-silly-k))
