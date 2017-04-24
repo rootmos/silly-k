@@ -151,6 +151,23 @@
                     ,malfunction-unit))))
          (apply $go 0)))))
 
+(define malfunction-map-lambda
+  `(lambda ($f $v)
+     (let
+       ($n (length $v))
+       (let
+         (rec
+           ($go (lambda ($i)
+                  (if (< $i $n)
+                    (seq
+                      (let ($w (apply $f (load $v $i)))
+                        (store $v $i $w))
+                      (apply $go (+ $i 1)))
+                    ,malfunction-unit))))
+         (seq
+           (apply $go 0)
+           $v)))))
+
 (define (make-malfunction-vector l)
   (letrec ([go (lambda (i k)
                  (if (null? k)
@@ -175,20 +192,27 @@
         (let ([a (Expr e0)]
               [b (Expr e1)])
           `(+ ,a ,b))]
+       [(eq? pf 'distribute-addition)
+        (let ([a (Expr e0)]
+              [b (Expr e1)])
+          `(let ($a ,a)
+             (let ($f (lambda ($x) (+ $a $x)))
+               (apply $map $f ,b))))]
        [else (error 'output-malfunction "unsupported primitive function" pf)])]
     [else (error 'output-malfunction "unsupported expr")])
   (Program : Program (p) -> *()
     [(program ,e)
        `(module
+          ($map ,malfunction-map-lambda)
           ($x ,[Expr e])
           (_ ,(malfunction-print k '$x))
           (_ ,malfunction-print-newline)
           (export))
      ]))
 
-(compile-and-run "1 2 3")
 (compile-and-run "1")
-(compile-and-run "1+2")
+(compile-and-run "1 2 3")
+(compile-and-run "1+2 3 4")
 
 (compiler "1 2+3 4")
 
