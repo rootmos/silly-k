@@ -55,16 +55,37 @@
 (ast-to-Lsrc (parse-silly-k-string "+/1 2"))
 (ast-to-Lsrc (parse-silly-k-string "7+/1 2"))
 
-(define-pass analyze-lengths : Lsrc (e) -> Lsrc (l)
+(define-language
+  L1
+  (extends Lsrc)
+  (terminals
+    (+ (number (n))))
+  (Expr (e)
+        (+ n)))
+
+(define-pass introduce-scalars : Lsrc (e) -> L1 ()
+  (Expr : Expr (e) -> Expr ()
+    [,nv (if (= 1 (length nv))
+           (car nv)
+           nv)]))
+(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2")))
+(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+1 2")))
+(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1+2 3")))
+(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2+3 4")))
+(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+/1 2")))
+(introduce-scalars (ast-to-Lsrc (parse-silly-k-string "7+/1 2")))
+
+(define-pass analyze-lengths : L1 (e) -> L1 (l)
   (Expr : Expr (e) -> Expr (#f)
-    [,nv (values nv (length nv))]
+    [,n (values n 'scalar)]
+    [,nv (values nv (list 'vector (length nv)))]
     [(verb ,v ,e)
      (let-values ([(e^ l) (Expr e)])
        (values `(verb ,v ,e^) l))])
   (Expr e))
-(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "1 2")))
-(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "+1 2")))
-(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "1+2 3")))
-(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "1 2+3 4")))
-(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "+/1 2")))
-(analyze-lengths (ast-to-Lsrc (parse-silly-k-string "7+/1 2")))
+(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2"))))
+(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+1 2"))))
+(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1+2 3"))))
+(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "1 2+3 4"))))
+(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "+/1 2"))))
+(analyze-lengths (introduce-scalars (ast-to-Lsrc (parse-silly-k-string "7+/1 2"))))
