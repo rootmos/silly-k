@@ -151,35 +151,19 @@
   (malfunction-error "length error" 3))
 
 (define (malfunction-print-vector l)
-  (let ([printer (malfunction-print-integer `(load ,l $i))])
-    `(let ($n (length ,l))
-       (let
-         (rec
-           ($go (lambda ($i)
-                  (if (< $i $n)
-                    (seq
-                      ,printer
-                      (if (< (+ $i 1) $n)
-                        ,malfunction-print-space
-                        ,malfunction-unit)
-                      (apply $go (+ $i 1)))
-                    ,malfunction-unit))))
-         (apply $go 0)))))
+  `(let ($n (length ,l))
+     (apply (global $Array $iteri)
+            (lambda ($i $x)
+              (seq
+                ,(malfunction-print-integer '$x)
+                (if (< (+ $i 1) $n)
+                  ,malfunction-print-space
+                  ,malfunction-unit)))
+            ,l)))
 
 (define malfunction-map-lambda
   `(lambda ($f $v)
-     (let
-       ($n (length $v))
-       (let
-         (rec
-           ($go (lambda ($i)
-                  (if (< $i $n)
-                    (seq
-                      (let ($w (apply $f (load $v $i)))
-                        (store $v $i $w))
-                      (apply $go (+ $i 1)))
-                    $v))))
-         (apply $go 0)))))
+     (apply (global $Array $map) $f $v)))
 
 (define malfunction-zip-lambda
   `(lambda ($f $v $w)
@@ -187,27 +171,12 @@
        ($n (length $v))
        ($m (length $w))
        (if (== $n $m)
-         (let
-           (rec
-             ($go (lambda ($i)
-                    (if (< $i $n)
-                      (seq
-                        (let ($u (apply $f (load $v $i) (load $w $i)))
-                          (store $v $i $u))
-                        (apply $go (+ $i 1)))
-                      $v))))
-           (apply $go 0))
+         (apply (global $Array $map2) $f $v $w)
          ,malfunction-length-error))))
 
 (define malfunction-foldr-lambda
   `(lambda ($f $b $v)
-     (let
-       (rec
-         ($go (lambda ($i $b)
-                (if (>= $i 0)
-                  (apply $go (- $i 1) (apply $f (load $v $i) $b))
-                  $b))))
-         (apply $go (- (length $v) 1) $b))))
+     (apply (global $Array $fold_right) $f $v $b)))
 
 (define (make-malfunction-vector l)
   (letrec ([go (lambda (i k)
