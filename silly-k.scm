@@ -68,14 +68,15 @@
            `(vector ,nv))]))
 
 (define functions
-  '(((plus vector vector) . (pointwise-addition vector))
-    ((plus scalar vector) . (distribute-addition vector))
-    ((plus scalar scalar) . (scalar-addition scalar))
+  '(((plus vector vector)    . (pointwise-addition vector))
+    ((plus scalar vector)    . (distribute-addition vector))
+    ((plus scalar scalar)    . (scalar-addition scalar))
+    (((over plus) #f vector) . (reduce-addition scalar))
     ))
 
 (define primfun?
   (lambda (x)
-    (not (not (memq x '(pointwise-addition distribute-addition scalar-addition))))))
+    (not (not (memq x (map cadr functions))))))
 
 (define-language
   L2
@@ -98,6 +99,13 @@
     [(apply ,v ,e)
      (let-values ([(e^ l) (Expr e)])
        (let* ([fk (list v #f l)]
+              [mf (assoc fk functions)])
+         (if mf
+           (values `(apply ,[cadr mf] ,e^) (caddr mf))
+           (error 'choose-primitive-functions "unsupported combination" fk))))]
+    [(apply (adverb ,a ,f) ,e)
+     (let-values ([(e^ l) (Expr e)])
+       (let* ([fk (list (list a f) #f l)]
               [mf (assoc fk functions)])
          (if mf
            (values `(apply ,[cadr mf] ,e^) (caddr mf))
@@ -191,6 +199,16 @@
            (apply $go 0))
          ,malfunction-length-error))))
 
+(define malfunction-foldr-lambda
+  `(lambda ($f $b $v)
+     (let
+       (rec
+         ($go (lambda ($i $b)
+                (if (>= $i 0)
+                  (apply $go (- $i 1) (apply $f (load $v $i) $b))
+                  $b))))
+         (apply $go (- (length $v) 1) $b))))
+
 (define (make-malfunction-vector l)
   (letrec ([go (lambda (i k)
                  (if (null? k)
@@ -224,24 +242,33 @@
         (let ([a (Expr e0)]
               [b (Expr e1)])
           `(apply $zip (lambda ($x $y) (+ $x $y)) ,a ,b))]
-       [else (error 'output-malfunction "unsupported primitive function" pf)])]
+       [else (error 'output-malfunction "unsupported dyadic primitive function" pf)])]
+    [(apply ,pf ,e)
+     (cond
+       [(eq? pf 'reduce-addition)
+        (let ([a (Expr e)])
+          `(apply $foldr (lambda ($x $y) (+ $x $y)) 0 ,a))]
+       [else (error 'output-malfunction "unsupported monadic primitive function" pf)])]
     [else (error 'output-malfunction "unsupported expr")])
   (Program : Program (p) -> *()
     [(program ,e)
        `(module
           ($map ,malfunction-map-lambda)
           ($zip ,malfunction-zip-lambda)
+          ($foldr ,malfunction-foldr-lambda)
           ($x ,[Expr e])
           (_ ,(malfunction-print k '$x))
           (_ ,malfunction-print-newline)
           (export))
      ]))
 
-(compile-and-run "1")
-(compile-and-run "1 2 3")
-(compile-and-run "1+2 3 4")
-(compile-and-run "1 2+3 4 5")
-(compile-and-run "1 2+3 4")
+
+;(compile-and-run "1")
+;(compile-and-run "1 2 3")
+;(compile-and-run "1+2 3 4")
+;(compile-and-run "1 2+3 4 5")
+;(compile-and-run "1 2+3 4")
+;(compile-and-run "+/1 2 3")
 
 (define (compiler s)
   (let-values
