@@ -131,7 +131,7 @@
   (Expr : Expr (e) -> Expr ())
   `(program ,(Expr e)))
 
-(define (malfunction-print-integer i)
+(define (malfunction-print-scalar i)
   `(apply (global $Pervasives $print_int) ,i))
 
 (define malfunction-unit
@@ -155,7 +155,7 @@
      (apply (global $Array $iteri)
             (lambda ($i $x)
               (seq
-                ,(malfunction-print-integer '$x)
+                ,(malfunction-print-scalar '$x)
                 (if (< (+ $i 1) $n)
                   ,malfunction-print-space
                   ,malfunction-unit)))
@@ -188,9 +188,19 @@
 
 (define (malfunction-print kind x)
   (cond
-    [(eq? kind 'scalar) (malfunction-print-integer x)]
+    [(eq? kind 'scalar) (malfunction-print-scalar x)]
     [(eq? kind 'vector) (malfunction-print-vector x)]
     [else (error 'malfunction-print "unknown kind" kind)]))
+
+(define malfunction-read-scalar
+  `(apply (global $Pervasives $read_int) ,malfunction-unit))
+
+(define malfunction-read-vector
+  `(apply (global $Array $map)
+          (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
+          (apply (global $Array $of_list)
+                 (apply (global $Str $split) (apply (global $Str $regexp) " +")
+                        (apply (global $Pervasives $read_line) ,malfunction-unit)))))
 
 (define-pass output-malfunction : L3 (e k) -> * ()
   (Expr : Expr (e) -> * ()
@@ -250,10 +260,11 @@
 
 (define compile-malfunction
   (lambda (out mlf)
-    (with-temporary-file "silly.XXXXXX" (fn p)
+    (with-temporary-file "silly_XXXXXX" (fn p)
       (write mlf p)
       (flush-output-port p)
-      (assert (= 0 (system (format "opam config exec -- malfunction compile -o ~s ~s" out fn))))
+      (assert (= 0 (system (format "opam config exec -- malfunction cmx ~s" fn))))
+      (assert (= 0 (system (format "opam config exec -- ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out fn))))
       )))
 
 (define (compile e)
