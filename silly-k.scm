@@ -1,7 +1,72 @@
 (import (nanopass) (rnrs))
+(include "tools.scm")
 
-(load "tools.scm")
-(load "parser.scm")
+(load "lalr-scm/lalr.scm")
+
+(define lex
+  (lambda ()
+    (letrec ([skip-spaces
+               (lambda ()
+                 (let ([c (peek-char)])
+                   (cond
+                     [(eof-object? c)]
+                     [(or (char=? c #\space)
+                          (char=? c #\tab))
+                      (read-char) (skip-spaces)]
+                     )))]
+             [read-number
+               (lambda (l)
+                 (let ([c (peek-char)])
+                   (cond
+                     [(and (char? c) (char-numeric? c))
+                      (read-number (cons (read-char) l))]
+                     [else (string->number (list->string (reverse l)))])))])
+      (skip-spaces)
+      (let ([location (make-source-location
+                        (port-name (current-input-port))
+                        (port-position (current-input-port))
+                        #f
+                        -1
+                        (port-length (current-input-port)))]
+            [c (read-char)])
+        (cond
+          [(eof-object? c) '*eoi*]
+            [(char=? c #\+)       (make-lexical-token 'PLUS location #f)]
+            [(char=? c #\newline) (make-lexical-token 'NEWLINE location #f)]
+            [(char=? c #\:)       (make-lexical-token 'COLON location #f)]
+            [(char=? c #\-)       (make-lexical-token 'MINUS location #f)]
+            [(char=? c #\()       (make-lexical-token 'LPAREN location #f)]
+            [(char=? c #\))       (make-lexical-token 'RPAREN location #f)]
+            [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
+            [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
+            [(char-numeric? c)    (make-lexical-token 'NUM location (read-number `(,c)))]
+            [else (error 'lex "Unrecognized character" c)])))))
+
+(define parse-silly-k
+  (lambda ()
+    (let ([parser
+            (lalr-parser
+              (expect: 0)
+              (PLUS NUM MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE)
+              (statement (expr) : $1
+                         (expr NEWLINE) : $1)
+              (expr (num) : $1
+                    (verb) : `(apply ,$1 #f #f)
+                    (verb expr) : `(apply ,$1 #f ,$2)
+                    (expr verb expr) : `(apply ,$2 ,$1 ,$3))
+              (exprs (exprs expr) : (append $1 (list $2))
+                     (expr)       : (list $1)
+                     ()           : '())
+              (verb (PLUS) : 'plus
+                    (MINUS) : 'minus
+                    (NUM COLON) : `(system ,$1)
+                    (verb adverb) : `(adverb ,$2 ,$1))
+              (adverb (SLASH) : 'over
+                      (QUOTE) : 'each)
+              (num (num NUM) : (append $1 (list $2))
+                   (NUM) : (list $1)))]
+          [error-handler (lambda (message . args) (error 'parse-silly-k message args))])
+      (parser lex error-handler))))
 
 (define num-vector?
   (lambda (l)
@@ -271,25 +336,13 @@
           (export))
      ]))
 
-
-; (compile-and-run "1")
-; (compile-and-run "1 2 3")
-; (compile-and-run "1+2 3 4")
-; (compile-and-run "1 2+3 4 5")
-; (compile-and-run "1 2+3 4")
-; (compile-and-run "+/1 2 3")
-;
-; (compile-and-run "1+0:")
-; (compile-and-run "1+1:")
-; (compile-and-run "+/0:")
-
-(define (compiler s)
+(define (compiler)
   (let-values
     ([(e k)
       (choose-primitive-functions
         (differentiate-scalars
           (ast-to-Lsrc
-            (parse-silly-k-string s))))])
+            (parse-silly-k))))])
     (output-malfunction (wrap e) k)))
 
 (define compile-malfunction
@@ -301,10 +354,23 @@
       (assert (= 0 (system (format "opam config exec -- ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out fn))))
       )))
 
-(define (compile e)
-  (compile-malfunction "a.out" (compiler e)))
+(define compile
+  (lambda (o)
+    (compile-malfunction o (compiler))))
 
-(define (compile-and-run e)
-  (compile e)
+(define (compile-and-run)
+  (compile "a.out")
   (assert (= 0 (system "./a.out")))
   (void))
+
+(let ([args (cdr (command-line))])
+  (unless (null? args)
+    (let-values
+      ([(output input)
+        (if (equal? (car args) "-o")
+          (values (cadr args) (caddr args))
+          (values "a.out" (car args)))])
+      (let ([go (lambda () (compile output))])
+        (if (not (eq? "-" input))
+          (with-input-from-file input go)
+          (go))))))
