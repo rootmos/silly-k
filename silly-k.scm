@@ -10,7 +10,7 @@
 
 (define verb?
   (lambda (x)
-    (not (not (memq x '(plus minus))))))
+    (not (not (memq x '(plus minus colon))))))
 
 (define adverb?
   (lambda (x)
@@ -21,19 +21,25 @@
   (terminals
     (verb (v))
     (adverb (a))
+    (number (n))
     (num-vector (nv)))
   (entry Expr)
   (Fun (f)
        v
+       (system n)
        (adverb a f))
   (Expr (e)
         nv
+        (apply f)
         (apply f e)
         (apply f e0 e1)))
+
 (define-pass ast-to-Lsrc : * (e) -> Lsrc ()
   (Fun : * (f) -> Fun ()
     (cond
       [(verb? f) f]
+      [(and (list f) (eq? (car f) 'system))
+       `(system ,(cadr f))]
       [(and (list f) (eq? (car f) 'adverb))
        (let ([v (cadr f)]
              [f^ (Fun (caddr f))])
@@ -43,10 +49,13 @@
       [(num-vector? e) e]
       [(eq? (car e) 'apply)
        (let ([v (Fun (cadr e))]
-             [r (cadddr e)])
-         (if (caddr e)
-           `(apply ,v ,(Expr (caddr e)) ,r)
-           `(apply ,v ,r)))]
+             [a (caddr e)]
+             [b (cadddr e)])
+         (cond
+           [(and a b) `(apply ,v ,(Expr a) ,(Expr b))]
+           [(and (not a) b) `(apply ,v ,(Expr b))]
+           [(and (not a) (not b)) `(apply ,v)]
+           [(and a (not b)) (error 'ast-to-Lsrc "unsupported fuction application!")]))]
       [else e]
       ))
   (Expr e))
@@ -54,8 +63,6 @@
 (define-language
   L1
   (extends Lsrc)
-  (terminals
-    (+ (number (n))))
   (Expr (e)
         (- nv)
         (+ (scalar n))
@@ -72,6 +79,8 @@
     ((plus scalar vector)    . (distribute-addition vector))
     ((plus scalar scalar)    . (scalar-addition scalar))
     (((over plus) #f vector) . (reduce-addition scalar))
+    (((system 0) #f #f)      . (system-read-vector vector))
+    (((system 1) #f #f)      . (system-read-scalar scalar))
     ))
 
 (define primfun?
@@ -85,17 +94,27 @@
     (+ (primfun (pf))))
   (Fun (f)
        (- v)
+       (- (system n))
        (- (adverb a f)))
   (Expr (e)
+        (- (apply f))
+        (+ (apply pf))
         (- (apply f e))
         (+ (apply pf e))
         (- (apply f e0 e1))
         (+ (apply pf e0 e1))))
 
+
 (define-pass choose-primitive-functions : L1 (e) -> L2 (k)
   (Expr : Expr (e) -> Expr (#f)
     [(scalar ,n) (values `(scalar ,n) 'scalar)]
     [(vector ,nv) (values `(vector ,nv) 'vector)]
+    [(apply (system ,n))
+     (let* ([fk (list (list 'system n) #f #f)]
+            [mf (assoc fk functions)])
+       (if mf
+         (values `(apply ,[cadr mf]) (caddr mf))
+         (error 'choose-primitive-functions "unsupported combination" fk)))]
     [(apply ,v ,e)
      (let-values ([(e^ l) (Expr e)])
        (let* ([fk (list v #f l)]
@@ -118,7 +137,7 @@
          (if mf
            (values `(apply ,[cadr mf] ,e0^ ,e1^) (caddr mf))
            (error 'choose-primitive-functions "unsupported combination" fk))))]
-    [else (error 'choose-primitive-functions "unsupported verb")])
+    [else (error 'choose-primitive-functions "unsupported verb" e)])
   (Expr e))
 
 (define-language L3
@@ -192,20 +211,35 @@
     [(eq? kind 'vector) (malfunction-print-vector x)]
     [else (error 'malfunction-print "unknown kind" kind)]))
 
-(define malfunction-read-scalar
-  `(apply (global $Pervasives $read_int) ,malfunction-unit))
+(define malfunction-read-scalar-lambda
+  `(lambda ($x)
+     (apply (global $Pervasives $read_int) ,malfunction-unit)))
 
-(define malfunction-read-vector
-  `(apply (global $Array $map)
-          (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
-          (apply (global $Array $of_list)
-                 (apply (global $Str $split) (apply (global $Str $regexp) " +")
-                        (apply (global $Pervasives $read_line) ,malfunction-unit)))))
+(define malfunction-read-vector-lambda
+  `(lambda ($x)
+     (apply (global $Array $map)
+            (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
+            (apply (global $Array $of_list)
+                   (apply (global $Str $split) (apply (global $Str $regexp) " +")
+                          (apply (global $Pervasives $read_line) ,malfunction-unit))))))
 
 (define-pass output-malfunction : L3 (e k) -> * ()
   (Expr : Expr (e) -> * ()
     [(scalar ,n) n]
     [(vector ,nv) (make-malfunction-vector nv)]
+    [(apply ,pf)
+     (cond
+       [(eq? pf 'system-read-vector)
+        `(apply $read_vector ,malfunction-unit)]
+       [(eq? pf 'system-read-scalar)
+        `(apply $read_scalar ,malfunction-unit)]
+       [else (error 'output-malfunction "unsupported nullary primitive function" pf)])]
+    [(apply ,pf ,e)
+     (cond
+       [(eq? pf 'reduce-addition)
+        (let ([a (Expr e)])
+          `(apply $foldr (lambda ($x $y) (+ $x $y)) 0 ,a))]
+       [else (error 'output-malfunction "unsupported monadic primitive function" pf)])]
     [(apply ,pf ,e0 ,e1)
      (cond
        [(eq? pf 'scalar-addition)
@@ -222,12 +256,6 @@
               [b (Expr e1)])
           `(apply $zip (lambda ($x $y) (+ $x $y)) ,a ,b))]
        [else (error 'output-malfunction "unsupported dyadic primitive function" pf)])]
-    [(apply ,pf ,e)
-     (cond
-       [(eq? pf 'reduce-addition)
-        (let ([a (Expr e)])
-          `(apply $foldr (lambda ($x $y) (+ $x $y)) 0 ,a))]
-       [else (error 'output-malfunction "unsupported monadic primitive function" pf)])]
     [else (error 'output-malfunction "unsupported expr")])
   (Program : Program (p) -> *()
     [(program ,e)
@@ -235,6 +263,8 @@
           ($map ,malfunction-map-lambda)
           ($zip ,malfunction-zip-lambda)
           ($foldr ,malfunction-foldr-lambda)
+          ($read_scalar ,malfunction-read-scalar-lambda)
+          ($read_vector ,malfunction-read-vector-lambda)
           ($x ,[Expr e])
           (_ ,(malfunction-print k '$x))
           (_ ,malfunction-print-newline)
@@ -242,12 +272,16 @@
      ]))
 
 
-;(compile-and-run "1")
-;(compile-and-run "1 2 3")
-;(compile-and-run "1+2 3 4")
-;(compile-and-run "1 2+3 4 5")
-;(compile-and-run "1 2+3 4")
-;(compile-and-run "+/1 2 3")
+; (compile-and-run "1")
+; (compile-and-run "1 2 3")
+; (compile-and-run "1+2 3 4")
+; (compile-and-run "1 2+3 4 5")
+; (compile-and-run "1 2+3 4")
+; (compile-and-run "+/1 2 3")
+;
+; (compile-and-run "1+0:")
+; (compile-and-run "1+1:")
+; (compile-and-run "+/0:")
 
 (define (compiler s)
   (let-values
