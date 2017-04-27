@@ -47,7 +47,7 @@
     (let ([parser
             (lalr-parser
               (expect: 0)
-              (PLUS NUM MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE)
+              (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE)
               (statement (expr) : $1
                          (expr NEWLINE) : $1)
               (expr (num) : $1
