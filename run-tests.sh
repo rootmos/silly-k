@@ -18,6 +18,7 @@ for TC in $DIR/*.sk; do
     $CC -o $NAME $TC
     if [ $? -eq 0 ]; then
         INPUT=$DIR/$NAME.input
+        [ -f $INPUT ] && sed 's/^/< /' $INPUT
         ( ([ -f $INPUT ] && cat $INPUT) || cat /dev/null) | ./$NAME | diff $DIFF_STYLE - $DIR/$NAME.expected
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}Ok${NC}\n"

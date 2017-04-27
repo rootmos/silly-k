@@ -50,7 +50,8 @@
               (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE)
               (statement (expr) : $1
                          (expr NEWLINE) : $1)
-              (expr (num) : $1
+              (expr (LPAREN expr RPAREN) : $2
+                    (num) : $1
                     (verb) : `(apply ,$1 #f #f)
                     (verb expr) : `(apply ,$1 #f ,$2)
                     (expr verb expr) : `(apply ,$2 ,$1 ,$3))
