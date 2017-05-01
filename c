@@ -1,2 +1,2 @@
 #!/bin/sh
-scheme --compile-imported-libraries --libdirs nanopass-framework-scheme --script silly-k.scm $*
+scheme nanopass-framework-scheme/nanopass.so nanopass-framework-scheme/nanopass/*.so lalr-scm/lalr.so silly-k.so --script c.scm $*
