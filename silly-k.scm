@@ -349,15 +349,6 @@
               (parse-silly-k))))])
       (output-malfunction (wrap e) k)))
 
-  (define compile-malfunction
-    (lambda (out mlf)
-      (with-temporary-file "silly_XXXXXX" (fn p)
-                           (write mlf p)
-                           (flush-output-port p)
-                           (assert (= 0 (system (format "opam config exec -- malfunction cmx ~s" fn))))
-                           (assert (= 0 (system (format "opam config exec -- ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out fn))))
-                           )))
-
   (define compile-silly-k
     (lambda (o)
       (compile-malfunction o (compiler))))
@@ -366,4 +357,17 @@
     (compile "a.out")
     (assert (= 0 (system "./a.out")))
     (void))
+
+  (define compile-malfunction
+    (lambda (out mlf)
+      (let* ([pn (port-name (current-input-port))]
+             [fn (string-append pn ".mlf")] )
+        (with-output-to-file fn
+          (lambda ()
+            (write mlf)
+            (flush-output-port)
+            (assert (= 0 (system (format "malfunction cmx ~s" fn))))
+            (assert (= 0 (system (format "ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out pn)))))
+          '(replace)))))
+
   )

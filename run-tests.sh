@@ -15,11 +15,12 @@ for TC in $DIR/*.sk; do
     NAME=$(basename $TC | sed 's/\.sk$//')
     echo -e "Testing $NAME..."
     sed 's/^/> /' $TC
-    $CC -o $NAME $TC
+    BINARY=$DIR/$NAME.bin
+    $CC -o $BINARY $TC
     if [ $? -eq 0 ]; then
         INPUT=$DIR/$NAME.input
         [ -f $INPUT ] && sed 's/^/< /' $INPUT
-        ( ([ -f $INPUT ] && cat $INPUT) || cat /dev/null) | ./$NAME | diff $DIFF_STYLE - $DIR/$NAME.expected
+        ( ([ -f $INPUT ] && cat $INPUT) || cat /dev/null) | ./$BINARY | diff $DIFF_STYLE - $DIR/$NAME.expected
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}Ok${NC}\n"
             TESTS=$(expr $TESTS + 1)
