@@ -1,7 +1,7 @@
-(import (nanopass) (rnrs))
-(include "tools.scm")
-
-(load "lalr-scm/lalr.scm")
+(import (nanopass)
+        (rnrs)
+        (silly-k tools)
+        (lalr))
 
 (define lex
   (lambda ()
