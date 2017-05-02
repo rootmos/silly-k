@@ -147,6 +147,8 @@
     '(((plus vector vector)    . (pointwise-addition vector))
       ((plus scalar vector)    . (distribute-addition vector))
       ((plus scalar scalar)    . (scalar-addition scalar))
+      ((minus scalar scalar)   . (scalar-substraction scalar))
+      ((minus #f scalar)       . (scalar-negation scalar))
       (((over plus) #f vector) . (reduce-addition scalar))
       (((system 0) #f #f)      . (system-read-vector vector))
       (((system 1) #f #f)      . (system-read-scalar scalar))
@@ -308,6 +310,9 @@
                         [(eq? pf 'reduce-addition)
                          (let ([a (Expr e)])
                            `(apply $foldr (lambda ($x $y) (+ $x $y)) 0 ,a))]
+                        [(eq? pf 'scalar-negation)
+                         (let ([a (Expr e)])
+                           `(- 0 ,a))]
                         [else (error 'output-malfunction "unsupported monadic primitive function" pf)])]
                      [
                       (apply ,pf ,e0 ,e1)
@@ -316,6 +321,8 @@
                         (cond
                           [(eq? pf 'scalar-addition)
                            (with-evaluated-args `(+ $a $b))]
+                          [(eq? pf 'scalar-substraction)
+                           (with-evaluated-args `(- $a $b))]
                           [(eq? pf 'distribute-addition)
                            (with-evaluated-args
                              `(apply $map (lambda ($x) (+ $a $x)) $b))]
