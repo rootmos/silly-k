@@ -1,3 +1,5 @@
+(import (silly-k))
+
 (let ([args (cdr (command-line))])
   (unless (null? args)
     (let-values
@@ -5,8 +7,8 @@
         (if (equal? (car args) "-o")
           (values (cadr args) (caddr args))
           (values "a.out" (car args)))])
-      (let ([go (lambda () (compile output))])
+      (let ([go (lambda () (compile-silly-k output))])
         (if (not (eq? "-" input))
           (with-input-from-file input go)
           (go))
-          (exit 0)))))
+        ))))
