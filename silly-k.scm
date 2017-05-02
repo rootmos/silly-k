@@ -309,23 +309,21 @@
                          (let ([a (Expr e)])
                            `(apply $foldr (lambda ($x $y) (+ $x $y)) 0 ,a))]
                         [else (error 'output-malfunction "unsupported monadic primitive function" pf)])]
-                     [(apply ,pf ,e0 ,e1)
-                      (cond
-                        [(eq? pf 'scalar-addition)
-                         (let ([a (Expr e0)]
-                               [b (Expr e1)])
-                           `(+ ,a ,b))]
-                        [(eq? pf 'distribute-addition)
-                         (let ([a (Expr e0)]
-                               [b (Expr e1)])
-                           `(let ($a ,a)
-                              (apply $map (lambda ($x) (+ $a $x)) ,b)))]
-                        [(eq? pf 'pointwise-addition)
-                         (let ([a (Expr e0)]
-                               [b (Expr e1)])
-                           `(apply $zip (lambda ($x $y) (+ $x $y)) ,a ,b))]
-                        [else (error 'output-malfunction "unsupported dyadic primitive function" pf)])]
-                     [else (error 'output-malfunction "unsupported expr")])
+                     [
+                      (apply ,pf ,e0 ,e1)
+                      (let ([with-evaluated-args (lambda (e)
+                                                   `(let ($b ,[Expr e1]) ($a ,[Expr e0]) ,e))])
+                        (cond
+                          [(eq? pf 'scalar-addition)
+                           (with-evaluated-args `(+ $a $b))]
+                          [(eq? pf 'distribute-addition)
+                           (with-evaluated-args
+                             `(apply $map (lambda ($x) (+ $a $x)) $b))]
+                          [(eq? pf 'pointwise-addition)
+                           (with-evaluated-args
+                             `(apply $zip (lambda ($x $y) (+ $x $y)) $a $b))]
+                          [else (error 'output-malfunction "unsupported dyadic primitive function" pf)])) ]
+                      [else (error 'output-malfunction "unsupported expr")])
                (Program : Program (p) -> *()
                         [(program ,e)
                          `(module
