@@ -30,7 +30,7 @@
                      (cond
                        [(and (char? c) (char-alphabetic? c))
                         (read-atom (cons (read-char) l))]
-                       [else (list->string (reverse l))])))])
+                       [else (string->symbol (list->string (reverse l)))])))])
         (skip-spaces)
         (let ([location (make-source-location
                           (port-name (current-input-port))
@@ -63,9 +63,9 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE LBRACE RBRACE ATOM)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
-                (expr (expr verb expr) : `(apply ,$2 ,$1 ,$3) 
+                (expr (expr verb expr) : `(apply ,$2 ,$1 ,$3)
                       (expr expr) : `(apply ,$1 #f ,$2)
-                      (LPAREN expr RPAREN) : $2 
+                      (LPAREN expr RPAREN) : $2
                       (verb) : $1
                       (num) : $1
                       (ATOM) : $1)
@@ -81,62 +81,66 @@
             [error-handler (lambda (message . args) (error 'parse-silly-k message args))])
         (parser lex error-handler))))
 
-;  (define num-vector?
-;    (lambda (l)
-;      (and (list? l)
-;           (fold-right (lambda (x y) (and x y)) #t (map number? l)))))
-;
-;  (define verb?
-;    (lambda (x)
-;      (not (not (memq x '(plus minus colon))))))
-;
-;  (define adverb?
-;    (lambda (x)
-;      (not (not (memq x '(each over))))))
-;
-;  (define-language
-;    Lsrc
-;    (terminals
-;      (verb (v))
-;      (adverb (a))
-;      (number (n))
-;      (num-vector (nv)))
-;    (entry Expr)
-;    (Fun (f)
-;         v
-;         (system n)
-;         (adverb a f))
-;    (Expr (e)
-;          nv
-;          (apply f)
-;          (apply f e)
-;          (apply f e0 e1)))
-;
-;  (define-pass ast-to-Lsrc : * (e) -> Lsrc ()
-;               (Fun : * (f) -> Fun ()
-;                    (cond
-;                      [(verb? f) f]
-;                      [(and (list f) (eq? (car f) 'system))
-;                       `(system ,(cadr f))]
-;                      [(and (list f) (eq? (car f) 'adverb))
-;                       (let ([v (cadr f)]
-;                             [f^ (Fun (caddr f))])
-;                         `(adverb ,v ,f^))]))
-;               (Expr : * (e) -> Expr ()
-;                     (cond
-;                       [(num-vector? e) e]
-;                       [(eq? (car e) 'apply)
-;                        (let ([v (Fun (cadr e))]
-;                              [a (caddr e)]
-;                              [b (cadddr e)])
-;                          (cond
-;                            [(and a b) `(apply ,v ,(Expr a) ,(Expr b))]
-;                            [(and (not a) b) `(apply ,v ,(Expr b))]
-;                            [(and (not a) (not b)) `(apply ,v)]
-;                            [(and a (not b)) (error 'ast-to-Lsrc "unsupported fuction application!")]))]
-;                       [else e]
-;                       ))
-;               (Expr e))
+  (define num-vector?
+    (lambda (l)
+      (and (list? l)
+           (fold-right (lambda (x y) (and x y)) #t (map number? l)))))
+
+  (define verb?
+    (lambda (x)
+      (not (not (memq x '(plus minus colon))))))
+
+  (define adverb?
+    (lambda (x)
+      (not (not (memq x '(each over))))))
+
+  (define-language
+    Lsrc
+    (terminals
+      (verb (v))
+      (symbol (s))
+      (adverb (a))
+      (number (n))
+      (num-vector (nv)))
+    (Expr (e)
+          nv
+          s
+          v
+          s
+          (system n)
+          (adverb a e)
+          (lambda e)
+          (apply e)
+          (apply e0 e1)
+          (apply e0 e1 e2)))
+
+  (define-pass ast-to-Lsrc : * (e) -> Lsrc ()
+    (Expr : * (e) -> Expr ()
+      (cond
+        [(num-vector? e) e]
+        [(verb? e) e]
+        [(and (list? e) (eq? (car e) 'system))
+         `(system ,(cadr e))]
+        [(and (list? e) (eq? (car e) 'adverb))
+         (let ([v (cadr e)]
+               [e^ (Expr (caddr e))])
+           `(adverb ,v ,e^))]
+        [(and (list? e) (eq? (car e) 'lambda))
+         `(lambda ,[Expr (cadr e)])]
+        [(and (list? e) (eq? (car e) 'lambda))
+         `(lambda ,[Expr (cadr e)])]
+        [(and (list? e) (eq? (car e) 'apply))
+         (let ([v (Expr (cadr e))]
+               [a (caddr e)]
+               [b (cadddr e)])
+           (cond
+             [(and a b) `(apply ,v ,(Expr a) ,(Expr b))]
+             [(and (not a) b) `(apply ,v ,(Expr b))]
+             [(and (not a) (not b)) `(apply ,v)]
+             [(and a (not b)) (error 'ast-to-Lsrc "unsupported fuction application!")]))]
+        [else e]
+        ))
+    (Expr e))
 ;
 ;  (define-language
 ;    L1
