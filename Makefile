@@ -9,3 +9,7 @@ test:
 .PHONY: clean
 clean:
 	rm -f silly_* *.cmx *.cmi *.o
+
+.PHONY: snippet
+snippet:
+	scheme --libdirs .:nanopass-framework-scheme:lalr-scm --script snippet.scm
