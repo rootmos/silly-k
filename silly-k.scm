@@ -141,20 +141,20 @@
         [else e]
         ))
     (Expr e))
-;
-;  (define-language
-;    L1
-;    (extends Lsrc)
-;    (Expr (e)
-;          (- nv)
-;          (+ (scalar n))
-;          (+ (vector nv))))
-;
-;  (define-pass differentiate-scalars : Lsrc (e) -> L1 ()
-;               (Expr : Expr (e) -> Expr ()
-;                     [,nv (if (= 1 (length nv))
-;                            `(scalar ,[car nv])
-;                            `(vector ,nv))]))
+
+  (define-language
+    L1
+    (extends Lsrc)
+    (Expr (e)
+          (- nv)
+          (+ (scalar n))
+          (+ (vector nv))))
+
+  (define-pass differentiate-scalars : Lsrc (e) -> L1 ()
+    (Expr : Expr (e) -> Expr ()
+          [,nv (if (= 1 (length nv))
+                 `(scalar ,[car nv])
+                 `(vector ,nv))]))
 ;
 ;  (define functions
 ;    '(((plus vector vector)    . (pointwise-addition vector))
