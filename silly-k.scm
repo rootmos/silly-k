@@ -63,14 +63,12 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE LBRACE RBRACE ATOM)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
-                (expr (LPAREN expr RPAREN) : $2
+                (expr (expr verb expr) : `(apply ,$2 ,$1 ,$3) 
+                      (expr expr) : `(apply ,$1 #f ,$2)
+                      (LPAREN expr RPAREN) : $2 
+                      (verb) : $1
                       (num) : $1
-                      (ATOM) : $1
-                      (verb) : `(apply ,$1 #f #f)
-                      (verb expr) : `(apply ,$1 #f ,$2)
-                      (expr verb expr) : `(apply ,$2 ,$1 ,$3))
-                (exprs (exprs expr) : (append $1 (list $2))
-                       (expr)       : (list $1))
+                      (ATOM) : $1)
                 (verb (PLUS) : 'plus
                       (MINUS) : 'minus
                       (NUM COLON) : `(system ,$1)
