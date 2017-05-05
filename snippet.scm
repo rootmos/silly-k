@@ -1,29 +1,29 @@
 (load "silly-k.scm")
 
+(define (id x) x)
+
+(define passes
+  '((parse-silly-k         . id)
+    (ast-to-Lsrc           . unparse-Lsrc)
+    (differentiate-scalars . unparse-L1)))
+
+
 (define (compiler s)
+  (display "> ")
   (display s)
   (newline)
 
-  (display
-    (with-input-from-string s
-      (lambda ()
-        (parse-silly-k)
-        )))
-  (newline)
-
-  (display
-    (with-input-from-string s
-      (lambda ()
-        (unparse-Lsrc (ast-to-Lsrc (parse-silly-k)))
-        )))
-  (newline)
-
-  (display
-    (with-input-from-string s
-      (lambda ()
-        (unparse-L1 (differentiate-scalars (ast-to-Lsrc (parse-silly-k))))
-        )))
-  (newline)
+  (fold-left (lambda (acc p)
+               (let* ([pass (car p)]
+                      [unparser (cdr p)]
+                      [expr (cond
+                              [(null? acc) (list pass)]
+                              [else (list pass acc)])])
+                 (display ((eval unparser) (with-input-from-string s (lambda () (eval expr)))))
+                 (newline)
+                 expr))
+             '()
+             passes)
 
   (newline))
 
