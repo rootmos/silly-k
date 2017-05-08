@@ -72,7 +72,7 @@
                 (verb (PLUS) : 'plus
                       (MINUS) : 'minus
                       (NUM COLON) : `(system ,$1)
-                      (LBRACE expr RBRACE) : `(lambda ,$2)
+                      (LBRACE expr RBRACE) : `(dfn ,$2)
                       (verb adverb) : `(adverb ,$2 ,$1))
                 (adverb (SLASH) : 'over
                         (QUOTE) : 'each)
@@ -108,7 +108,7 @@
           v
           (system n)
           (adverb a e)
-          (lambda e)
+          (dfn e)
           (apply e)
           (apply e0 e1)
           (apply e0 e1 e2)))
@@ -124,10 +124,10 @@
          (let ([v (cadr e)]
                [e^ (Expr (caddr e))])
            `(adverb ,v ,e^))]
-        [(and (list? e) (eq? (car e) 'lambda))
-         `(lambda ,[Expr (cadr e)])]
-        [(and (list? e) (eq? (car e) 'lambda))
-         `(lambda ,[Expr (cadr e)])]
+        [(and (list? e) (eq? (car e) 'dfn))
+         `(dfn ,[Expr (cadr e)])]
+        [(and (list? e) (eq? (car e) 'dfn))
+         `(dfn ,[Expr (cadr e)])]
         [(and (list? e) (eq? (car e) 'apply))
          (let ([v (Expr (cadr e))]
                [a (caddr e)]
@@ -166,7 +166,7 @@
       (- v)
       (- (system n))
       (- (adverb a e))
-      (+ (pf))))
+      (+ pf)))
 
   (define to-primfun-table
     '((plus . plus)
@@ -190,6 +190,55 @@
       [(adverb ,a ,e) `(apply ,[translate-to-primfun a] ,[Expr e])]
       [(system ,n) [translate-to-primfun n]]
       [,v [translate-to-primfun v]]))
+
+  (define-language
+    L3
+    (extends L2)
+    (entry Program)
+    (Program (p)
+      (+ (program e (s ...))))
+    (Expr (e)
+      (- (dfn e))
+      (- (apply e))
+      (- (apply e0 e1 e2))
+      (+ (lambda s e1))))
+
+   (define-pass introduce-lambda-abstractions : L2 (e) -> L3 ()
+      (Expr : Expr (e) -> Expr (fv)
+        [,pf (values pf '())]
+        [,s (values s (list s))]
+        [(scalar ,n) (values `(scalar ,n) '())]
+        [(vector ,nv) (values `(vector ,nv) '())]
+        [(apply ,e)
+         (let-values ([(e^ fv) (Expr e)])
+           (values `(apply ,e^ unit)))]
+        [(apply ,e0 ,e1)
+         (let-values ([(e0^ fv0) (Expr e0)]
+                      [(e1^ fv1) (Expr e1)])
+           (let ([fv (append fv0 fv1)])
+             (values `(apply ,e0^ ,e1^) fv)))]
+        [(apply ,e0 ,e1 ,e2)
+         (let-values ([(e0^ fv0) (Expr e0)]
+                      [(e1^ fv1) (Expr e1)]
+                      [(e2^ fv2) (Expr e2)])
+           (let ([fv (append fv0 fv1 fv2)])
+             (values `(apply (apply ,e0^ ,e2^) ,e1^) fv)))]
+        [(dfn ,e)
+         (let-values ([(e^ fv) (Expr e)])
+           (let ([has-a (memv 'a fv)]
+                 [has-w (memv 'w fv)])
+             (cond
+               [(and has-w (not has-a))
+                (values `(lambda w ,e^) (remove 'w fv))]
+               [(and has-w has-a)
+                (values `(lambda w (lambda a ,e^)) (remove 'a (remove 'w fv)))]
+               [(and (not has-w) has-a)
+                (values `(lambda a ,e^) (remove 'a fv))]
+               [(and (not has-w) (not has-a))
+                (error 'introduce-lambda-abstractions "nullary dfns not supported")]
+             )))])
+      (let-values ([(e^ fv) (Expr e)])
+        `(program ,e^ (,fv ...))))
 
 ;
 ;  (define functions
