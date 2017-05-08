@@ -106,7 +106,6 @@
           nv
           s
           v
-          s
           (system n)
           (adverb a e)
           (lambda e)
@@ -155,6 +154,43 @@
           [,nv (if (= 1 (length nv))
                  `(scalar ,[car nv])
                  `(vector ,nv))]))
+
+  (define-language
+    L2
+    (extends L1)
+    (terminals
+      (- (adverb (a)))
+      (- (verb (v)))
+      (+ (primfun (pf))))
+    (Expr (e)
+      (- v)
+      (- (system n))
+      (- (adverb a e))
+      (+ (pf))))
+
+  (define to-primfun-table
+    '((plus . plus)
+      (minus . minus)
+      (each . map)
+      (over . foldr)
+      (0 . input-vector)
+      (1 . input-scalar)))
+
+  (define primfun?
+    (lambda (x)
+      (not (not (memq x (map cdr to-primfun-table))))))
+
+  (define (translate-to-primfun f)
+    (cond
+      [(assq f to-primfun-table) => cdr]
+      [else (error 'translate-to-primfun "unsupported function" f)]))
+
+  (define-pass translate-to-primfuns : L1 (e) -> L2 ()
+    (Expr : Expr (e) -> Expr ()
+      [(adverb ,a ,e) `(apply ,[translate-to-primfun a] ,[Expr e])]
+      [(system ,n) [translate-to-primfun n]]
+      [,v [translate-to-primfun v]]))
+
 ;
 ;  (define functions
 ;    '(((plus vector vector)    . (pointwise-addition vector))

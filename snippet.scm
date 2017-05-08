@@ -5,7 +5,8 @@
 (define passes
   '((parse-silly-k         . id)
     (ast-to-Lsrc           . unparse-Lsrc)
-    (differentiate-scalars . unparse-L1)))
+    (differentiate-scalars . unparse-L1)
+    (translate-to-primfuns . unparse-L2)))
 
 
 (define (compiler s)
@@ -36,4 +37,5 @@
 (compiler "{1+w}2")
 (compiler "1{a+w}2")
 (compiler "{1+w}2 3 4")
+(compiler "(1:)+0:")
 (compiler "{1+w}'1 2 3")
