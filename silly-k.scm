@@ -363,6 +363,43 @@
          (let ([g* (map mk-global-binding env)])
            `(program ,e^ ,t (,g* ...))))]))
 
+  (define-language
+    L7
+    (extends L6)
+    (Constraint (c)
+      (+ (t0 t1)))
+    (Program (p)
+      (- (program e t (g* ...)))
+      (+ (program e t (g* ...) (c* ...)))))
+
+  (define-pass derive-type-constraints : L6 (e) -> L7 ()
+    (definitions
+      (with-output-language (L7 Type)
+        (define (mk-lambda-type t0 t1) `(,t0 ,t1)))
+      (with-output-language (L7 Constraint)
+        (define (mk-constraint t0 t1) `(,t0 ,t1))))
+    (Expr : Expr (e cs) -> Expr (t cs)
+      [(,s ,t) (values `(,s ,t) t cs)]
+      [(primfun ,pf ,t) (values `(primfun ,pf ,t) t cs)]
+      [(vector ,nv ,t) (let ([t^ (Type t)]) (values `(vector ,nv ,t^) t^ cs))]
+      [(scalar ,n ,t) (let ([t^ (Type t)]) (values `(scalar ,n ,t^) t^ cs))]
+      [(apply ,e0 ,e1 ,t)
+       (let*-values ([(e0^ t0 cs0) (Expr e0 cs)]
+                     [(e1^ t1 cs1) (Expr e1 cs)])
+         (let* ([t^ (Type t)]
+                [cs^ (cons (mk-constraint t0 (mk-lambda-type t1 t^)) (append cs0 cs1))])
+           (values `(apply ,e0^ ,e1^ ,t^) t^ cs^)))]
+      [(lambda (,s ,t0) ,e ,t1)
+       (let*-values ([(e^ et^ cs^) (Expr e cs)])
+         (let ([t1^ (Type t1)])
+           (values `(lambda (,s ,(Type t0)) ,e^ ,t1^) t1^ cs^)))])
+    (Global : Global (g) -> Global ())
+    (Type : Type (t) -> Type ())
+    (Program : Program (p) -> Program ()
+      [(program ,e ,t (,g* ...))
+       (let-values ([(e^ t^ cs) (Expr e '())])
+        `(program ,e^ ,t^ (,(map Global g*) ...) (,cs ...)))]))
+
 ;
 ;  (define functions
 ;    '(((plus vector vector)    . (pointwise-addition vector))
