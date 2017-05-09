@@ -8,7 +8,8 @@
     (differentiate-scalars         . unparse-L1)
     (translate-to-primfuns         . unparse-L2)
     (introduce-lambda-abstractions . unparse-L3)
-    (introduce-fresh-typevars      . unparse-L4)))
+    (type-scalars-and-vectors      . unparse-L4)
+    (introduce-fresh-typevars      . unparse-L5)))
 
 
 (define (compiler s)

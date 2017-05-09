@@ -241,40 +241,43 @@
         `(program ,e^ (,fv ...))))
 
   (define (int? e) (eqv? e 'int))
-  (define (typevar? e) (symbol? e))
 
   (define-language
     L4
     (extends L3)
-    (entry TypedProgram)
     (terminals
-      (+ (typevar (tv)))
       (+ (int (int))))
-    (Program (p)
-      (- (program e (s ...))))
-    (TypedProgram (tp)
-      (+ (program te (s ...))))
     (Type (t)
-      (+ tv)
       (+ int)
       (+ (vector t)))
     (Expr (e)
-      (- s)
-      (- (primfun pf))
       (- (vector nv))
       (- (scalar n))
-      (- (apply e0 e1))
-      (- (lambda s e)))
-    (TypedExpr (te)
-      (+ (s t))
-      (+ (primfun pf t))
       (+ (vector nv t))
       (+ (scalar n t))
-      (+ (apply te0 te1 t))
-      (+ (lambda (s t0) te t1))))
+      ))
 
+  (define-pass type-scalars-and-vectors : L3 (e) -> L4 ()
+    (Expr : Expr (e) -> Expr ()
+      [(vector ,nv) `(vector ,nv (vector int))]
+      [(scalar ,n) `(scalar ,n int)]))
 
-  (define-pass introduce-fresh-typevars : L3 (e) -> L4 ()
+  (define (typevar? e) (symbol? e))
+
+  (define-language
+    L5
+    (extends L4)
+    (terminals
+      (+ (typevar (tv))))
+    (Type (t)
+      (+ tv))
+    (Expr (e)
+      (- s)
+      (+ (s t))
+      (- (apply e0 e1))
+      (+ (apply e0 e1 t))))
+
+  (define-pass introduce-fresh-typevars : L4 (e) -> L5 ()
     (definitions
       (define typevar-counter 0)
       (define fresh-typevar
@@ -282,22 +285,13 @@
           (let ([c typevar-counter])
             (set! typevar-counter (+ c 1))
             (string->symbol (format "T~s" c))))))
-    (Expr : Expr (e) -> TypedExpr ()
+    (Expr : Expr (e) -> Expr ()
       [,s `(,s ,[fresh-typevar])]
-      [(primfun ,pf) `(primfun ,pf ,[fresh-typevar])]
-      [(vector ,nv) `(vector ,nv (vector int))]
-      [(scalar ,n) `(scalar ,n int)]
       [(apply ,e0 ,e1)
-       (let ([te0 (Expr e0)]
-             [te1 (Expr e1)])
-         `(apply ,te0 ,te1 ,[fresh-typevar]))]
-      [(lambda ,s ,e)
-       (let ([te (Expr e)])
-         `(lambda (,s ,[fresh-typevar]) ,te ,[fresh-typevar]))])
-    (Program : Program (p) -> TypedProgram ()
-      [(program ,e (,s ...))
-       (let ([te (Expr e)])
-         `(program ,te (,s ...)))]))
+       (let ([e0^ (Expr e0)]
+             [e1^ (Expr e1)])
+         `(apply ,e0^ ,e1^ ,[fresh-typevar]))]
+      ))
 
 ;
 ;  (define functions
