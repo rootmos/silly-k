@@ -270,7 +270,7 @@
     (terminals
       (+ (typevar (tv))))
     (Type (t)
-      (+ tv))
+      (+ (typevar tv)))
     (Expr (e)
       (- s)
       (+ (s t))
@@ -282,11 +282,12 @@
   (define-pass introduce-fresh-typevars : L4 (e) -> L5 ()
     (definitions
       (define typevar-counter 0)
-      (define fresh-typevar
-        (lambda ()
-          (let ([c typevar-counter])
-            (set! typevar-counter (+ c 1))
-            (string->symbol (format "T~s" c)))))
+      (with-output-language (L5 Type)
+        (define fresh-typevar
+          (lambda ()
+            (let ([c typevar-counter])
+              (set! typevar-counter (+ c 1))
+              `(typevar ,(string->symbol (format "T~s" c)))))))
       (define (type-symbol s env)
         (cond
           [(assq s env) => (lambda (st) (values (cdr st) env))]
@@ -318,7 +319,7 @@
     L6
     (extends L5)
     (Type (t)
-      (+ (t0 t1)))
+      (+ (lambda t0 t1)))
     (Expr (e)
       (- (lambda s e))
       (+ (lambda (s t0) e t1)))
@@ -335,14 +336,17 @@
           [(assq s env) => (lambda (st) (values (cdr st) (remove st env)))]
           [else (error 'type-lambda-abstractions "unbound symbol" s env)]))
       (with-output-language (L6 Type)
-        (define (mk-lambda-type t0 t1) `(,t0 ,t1)))
+        (define (mk-lambda-type t0 t1) `(lambda ,t0 ,t1)))
       (with-output-language (L6 Global)
         (define (mk-global-binding st) `(,(car st) ,(cdr st)))))
     (Type : Type (t) -> Type ())
     (Expr : Expr (e env) -> Expr (t env)
-      [(,s ,t) (values `(,s ,t) t (cons (cons s t) env))]
+      [(,s ,t)
+       (let ([t^ (Type t)])
+         (values `(,s ,t^) t^ (cons (cons s t^) env)))]
       [(primfun ,pf ,t)
-       (values `(primfun ,pf ,t) t env)]
+       (let ([t^ (Type t)])
+         (values `(primfun ,pf ,t^) t^ env))]
       [(vector ,nv ,t)
        (let ([t^ (Type t)])
          (values `(vector ,nv ,t^) t^ env))]
@@ -377,29 +381,30 @@
     (definitions
       ; TODO: move the introduction of these type-variables to earlier pass
       (define typevar-counter 0)
-      (define fresh-typevar
-        (lambda ()
-          (let ([c typevar-counter])
-            (set! typevar-counter (+ c 1))
-            (string->symbol (format "S~s" c)))))
       (with-output-language (L7 Type)
-        (define (mk-lambda-type t0 t1) `(,t0 ,t1))
+        (define fresh-typevar
+          (lambda ()
+            (let ([c typevar-counter])
+              (set! typevar-counter (+ c 1))
+              `(typevar ,(string->symbol (format "S~s" c)))))))
+      (with-output-language (L7 Type)
+        (define (mk-lambda-type t0 t1) `(lambda ,t0 ,t1))
         (define primfun-types-table
           (list
-            (cons 'plus         (list `(int int) `(int (vector int))))
+            (cons 'plus         (list `(lambda int int) `(lambda int (vector int))))
             (cons 'input-vector `(vector int))
             (cons 'input-scalar 'int)
             (cons 'map          (lambda ()
                                   (let ([a (fresh-typevar)]
                                         [b (fresh-typevar)])
-                                    `((,a ,b) ((vector ,a) (vector ,b))))))
-            (cons 'minus        `(int int))
+                                    `(lambda (lambda ,a ,b) (lambda (vector ,a) (vector ,b))))))
+            (cons 'minus        `(lambda int (lambda int int)))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-constraint t0 t1) `(,t0 ,t1))
         (define (mk-overloading t0 t*) `(overloaded ,t0 (,t* ...)))))
     (Expr : Expr (e cs) -> Expr (t cs)
-      [(,s ,t) (values `(,s ,t) t cs)]
+      [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
        (cond
          [(assq pf primfun-types-table) =>
@@ -410,7 +415,8 @@
                         [(list? types) (mk-overloading (Type t) types)]
                         [(procedure? types) (mk-constraint (Type t) (types))]
                         [else (mk-constraint (Type t) types)])])
-              (values `(primfun ,pf ,t) t (cons c cs))))]
+              (let ([t^ (Type t)])
+                (values `(primfun ,pf ,t^) t^ (cons c cs)))))]
          [else (error 'derive-type-constraints "untypeable primfun" pf)]
          )
        ]
@@ -432,6 +438,89 @@
       [(program ,e ,t (,g* ...))
        (let-values ([(e^ t^ cs) (Expr e '())])
         `(program ,e^ ,t^ (,(map Global g*) ...) (,cs ...)))]))
+
+  (define (typevar-type? x)
+    (and (list? x) (= 2 (length x)) (equal? 'typevar (car x))))
+
+  (define (lambda-type? x)
+    (and (list? x) (= 3 (length x)) (equal? 'lambda (car x))))
+
+  (define (occurs x xs)
+    (cond
+      [(lambda-type? xs) (fold-left (lambda (acc ys) (or acc (occurs x ys))) #f (cdr xs))]
+      [else (equal? x xs)]))
+
+  (define (substitute x y xs)
+    (cond
+      [(lambda-type? xs) (cons 'lambda (map (lambda (ys) (substitute x y ys)) (cdr xs)))]
+      [(and (typevar-type? xs) (equal? x xs)) y]
+      [(list? xs) (map (lambda (ys) (substitute x y ys)) xs)]
+      [else xs]))
+
+  (define (unify cs)
+    (if (null? cs)
+      (lambda (x) x)
+      (let* ([c (car cs)]
+             [cs^ (cdr cs)])
+        (if (equal? 'overloaded (car c))
+          (error 'unify "overloading not supported (yet)!")
+          (let ([s (car c)]
+                [t (cadr c)])
+            (cond
+              [(equal? s t) (unify cs^)]
+              [(and (typevar-type? s) (not (occurs s t)))
+               (cond
+                 [(unify (substitute s t cs^)) => (lambda (f)
+                                                    (lambda (x) (f (substitute s t x))))]
+                 [else #f])]
+              [(and (typevar-type? t) (not (occurs t s)))
+               (cond
+                 [(unify (substitute t s cs^)) => (lambda (f)
+                                                    (lambda (x) (f (substitute t s x))))]
+                 [else #f])]
+              [(and (lambda-type? s) (lambda-type? t))
+               (unify (append cs^ (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t)))))]
+              [else #f]))))))
+
+  (define-language
+    L8
+    (extends L7)
+    (terminals
+      (- (typevar (tv))))
+    (Type (t)
+      (- (typevar tv)))
+    (Constraint (c)
+      (- (t0 t1))
+      (- (overloaded t0 (t* ...))))
+    (Program (p)
+      (- (program e t (g* ...) (c* ...)))
+      (+ (program e t (g* ...)))))
+
+   (define-pass unify-and-substitute-types : L7 (e) -> L8 ()
+     (Global : Global (g sub) -> Global ()
+       [(,s ,t) `(,s ,[Type t sub])])
+     (Type : Type (t sub) -> Type ()
+       [(lambda ,t0 ,t1) `(lambda ,(Type t0 sub) ,(Type t1 sub))]
+       [(typevar ,tv) (mk-Type (sub (list 'typevar tv)))]
+       [(vector ,t) `(vector ,(Type t sub))])
+     (mk-Type : * (t) -> Type ()
+       (cond
+         [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
+         [else t]))
+     (Expr : Expr (e sub) -> Expr ()
+       [(primfun ,pf ,t) `(primfun ,pf ,(Type t sub))]
+       [(vector ,nv ,t) `(vector ,nv ,(Type t sub))]
+       [(scalar ,n ,t) `(scalar ,n ,(Type t sub))]
+       [(apply ,e0 ,e1 ,t) `(apply ,(Expr e0 sub) ,(Expr e1 sub) ,(Type t sub))]
+       [(lambda (,s ,t0) ,e ,t1) `(lambda (,s ,(Type t0 sub)) ,(Expr e sub) ,(Type t1 sub))])
+     (Program : Program (p) -> Program ()
+       [(program ,e ,t (,g* ...) (,c* ...))
+        (let ([cs (map unparse-L7 c*)])
+         (cond
+           [(unify cs) => (lambda (sub)
+            `(program ,(Expr e sub) ,(Type t sub) (,(map (lambda (g) (Global sub g)) g*) ...)))]
+           [else (error 'unify-and-substitute-types "unable to unify types" cs)]
+          ))]))
 
 ;
 ;  (define functions
