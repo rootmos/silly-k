@@ -641,9 +641,9 @@
            [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
             `(lambda ($x $xs) (apply $map (lambda ($y) (+ $x $y)) $xs))]
            [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
-            `(lambda ($xs $x) (apply $map (lambda ($x $y) (+ $x $y)) $xs))]
+            `(lambda ($xs $x) (apply $map (lambda ($y) (+ $x $y)) $xs))]
            [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
-            `(lambda ($ys) (lambda ($xs) (apply $zip (lambda ($x $y) (+ $x $y)) $xs $ys)))]
+            `(lambda ($ys $xs) (apply $zip (lambda ($x $y) (+ $x $y)) $xs $ys))]
            [(and (equal? pf 'map) (equal? '(lambda (lambda int int) (lambda (vector int) (vector int))) t^))
             `(lambda ($f) (lambda (xs) (apply $map $f xs)))]
            [(and (equal? pf 'input-vector) (equal? '(vector int) t^))
