@@ -23,8 +23,7 @@
                       [expr (cond
                               [(null? acc) (list pass)]
                               [else (list pass acc)])])
-                 (display ((eval unparser) (with-input-from-string s (lambda () (eval expr)))))
-                 (newline)
+                 (pretty-print ((eval unparser) (with-input-from-string s (lambda () (eval expr)))))
                  expr))
              '()
              passes)
@@ -35,7 +34,6 @@
 (compiler "1+2+3+4")
 (compiler "foo")
 (compiler "foo bar")
-(compiler "{x w w}")
 (compiler "1 2 3")
 (compiler "{w}")
 (compiler "{a}")
@@ -44,3 +42,5 @@
 (compiler "{1+w}2 3 4")
 (compiler "(1:)+0:")
 (compiler "{1+w}'1 2 3")
+(compiler "{x w w}")
+(compiler "{w+{w}}2")

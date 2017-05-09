@@ -274,6 +274,8 @@
     (Expr (e)
       (- s)
       (+ (s t))
+      (- (primfun pf))
+      (+ (primfun pf t))
       (- (apply e0 e1))
       (+ (apply e0 e1 t))))
 
@@ -284,14 +286,37 @@
         (lambda ()
           (let ([c typevar-counter])
             (set! typevar-counter (+ c 1))
-            (string->symbol (format "T~s" c))))))
-    (Expr : Expr (e) -> Expr ()
-      [,s `(,s ,[fresh-typevar])]
+            (string->symbol (format "T~s" c)))))
+      (define (type-symbol s env)
+        (cond
+          [(assq s env) => (lambda (st) (values (cdr st) env))]
+          [else (let ([t (fresh-typevar)])
+                  (values t (cons `(,s . ,t) env)))]))
+      (define (abstract-symbol s env)
+        (cond
+          [(assq s env) => (lambda (st) (remove st env))]
+          [else env]))
+      )
+    (Expr : Expr (e env) -> Expr (env)
+      [,s
+       (let-values ([(t env^) (type-symbol e env)])
+         (values `(,s ,t) env^))]
+      [(primfun ,pf)
+       (values `(primfun ,pf ,[fresh-typevar]) env)]
       [(apply ,e0 ,e1)
-       (let ([e0^ (Expr e0)]
-             [e1^ (Expr e1)])
-         `(apply ,e0^ ,e1^ ,[fresh-typevar]))]
-      ))
+       (let*-values ([(e0^ env0) (Expr e0 env)]
+                     [(e1^ env1) (Expr e1 env0)])
+         (values `(apply ,e0^ ,e1^ ,[fresh-typevar]) env1))]
+      [(lambda ,s ,e)
+       (let*-values ([(e^ env^) (Expr e env)])
+         (values `(lambda ,s ,e^) (abstract-symbol s env^)))]
+      )
+    (Program : Program (p) -> Program ()
+      [(program ,e (,s ...))
+       (let-values ([(e^ env) (Expr e '())])
+         `(program ,e^ (,s ...)))])
+    )
+
 
 ;
 ;  (define functions
