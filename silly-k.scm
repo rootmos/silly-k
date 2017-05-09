@@ -295,8 +295,7 @@
       (define (abstract-symbol s env)
         (cond
           [(assq s env) => (lambda (st) (remove st env))]
-          [else env]))
-      )
+          [else env])))
     (Expr : Expr (e env) -> Expr (env)
       [,s
        (let-values ([(t env^) (type-symbol e env)])
@@ -308,15 +307,52 @@
                      [(e1^ env1) (Expr e1 env0)])
          (values `(apply ,e0^ ,e1^ ,[fresh-typevar]) env1))]
       [(lambda ,s ,e)
-       (let*-values ([(e^ env^) (Expr e env)])
-         (values `(lambda ,s ,e^) (abstract-symbol s env^)))]
-      )
+       (let-values ([(e^ env^) (Expr e env)])
+         (values `(lambda ,s ,e^) (abstract-symbol s env^)))])
     (Program : Program (p) -> Program ()
       [(program ,e (,s ...))
        (let-values ([(e^ env) (Expr e '())])
-         `(program ,e^ (,s ...)))])
-    )
+         `(program ,e^ (,s ...)))]))
 
+  (define-language
+    L6
+    (extends L5)
+    (Type (t)
+      (+ (t0 t1)))
+    (Expr (e)
+      (- (lambda s e))
+      (+ (lambda (s t0) e t1))))
+
+  (define-pass type-lambda-abstractions : L5 (e) -> L6 ()
+    (definitions
+      (define (abstract-symbol s env)
+        (cond
+          [(assq s env) => (lambda (st) (values (cdr st) (remove st env)))]
+          [else (error 'type-lambda-abstractions "unbound symbol" s env)]))
+      (with-output-language (L6 Type)
+        (define (mk-lambda-type t0 t1) `(,t0 ,t1)))
+      )
+    (Type : Type (t) -> Type ())
+    (Expr : Expr (e env) -> Expr (t env)
+      [(,s ,t) (values `(,s ,t) t (cons (cons s t) env))]
+      [(primfun ,pf ,t)
+       (values `(primfun ,pf ,t) t env)]
+      [(vector ,nv ,t) (values `(vector ,nv ,[Type t]) t env)]
+      [(scalar ,n ,t) (values `(scalar ,n ,[Type t]) t env)]
+      [(apply ,e0 ,e1 ,t)
+       (let*-values ([(e0^ t0 env0) (Expr e0 env)]
+                     [(e1^ t1 env1) (Expr e1 env0)])
+         (let ([t^ (Type t)])
+           (values `(apply ,e0^ ,e1^ ,t^) t^ env1)))]
+      [(lambda ,s ,e)
+       (let*-values ([(e^ t1 env^) (Expr e env)]
+                     [(t0 env^^) (abstract-symbol s env^)])
+         (let ([t^ (mk-lambda-type t0 t1)])
+           (values `(lambda (,s ,t0) ,e^ ,t^) t^ env^^)))])
+    (Program : Program (p) -> Program ()
+      [(program ,e (,s ...))
+       (let-values ([(e^ t env) (Expr e '())])
+         `(program ,e^ (,s ...)))]))
 
 ;
 ;  (define functions

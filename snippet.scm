@@ -9,7 +9,9 @@
     (translate-to-primfuns         . unparse-L2)
     (introduce-lambda-abstractions . unparse-L3)
     (type-scalars-and-vectors      . unparse-L4)
-    (introduce-fresh-typevars      . unparse-L5)))
+    (introduce-fresh-typevars      . unparse-L5)
+    (type-lambda-abstractions      . unparse-L6)
+    ))
 
 
 (define (compiler s)
