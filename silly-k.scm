@@ -367,20 +367,53 @@
     L7
     (extends L6)
     (Constraint (c)
-      (+ (t0 t1)))
+      (+ (t0 t1))
+      (+ (overloaded t0 (t* ...))))
     (Program (p)
       (- (program e t (g* ...)))
       (+ (program e t (g* ...) (c* ...)))))
 
   (define-pass derive-type-constraints : L6 (e) -> L7 ()
     (definitions
+      ; TODO: move the introduction of these type-variables to earlier pass
+      (define typevar-counter 0)
+      (define fresh-typevar
+        (lambda ()
+          (let ([c typevar-counter])
+            (set! typevar-counter (+ c 1))
+            (string->symbol (format "S~s" c)))))
       (with-output-language (L7 Type)
-        (define (mk-lambda-type t0 t1) `(,t0 ,t1)))
+        (define (mk-lambda-type t0 t1) `(,t0 ,t1))
+        (define primfun-types-table
+          (list
+            (cons 'plus         (list `(int int) `(int (vector int))))
+            (cons 'input-vector `(vector int))
+            (cons 'input-scalar 'int)
+            (cons 'map          (lambda ()
+                                  (let ([a (fresh-typevar)]
+                                        [b (fresh-typevar)])
+                                    `((,a ,b) ((vector ,a) (vector ,b))))))
+            (cons 'minus        `(int int))
+            )))
       (with-output-language (L7 Constraint)
-        (define (mk-constraint t0 t1) `(,t0 ,t1))))
+        (define (mk-constraint t0 t1) `(,t0 ,t1))
+        (define (mk-overloading t0 t*) `(overloaded ,t0 (,t* ...)))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (values `(,s ,t) t cs)]
-      [(primfun ,pf ,t) (values `(primfun ,pf ,t) t cs)]
+      [(primfun ,pf ,t)
+       (cond
+         [(assq pf primfun-types-table) =>
+          (lambda (pft)
+            (let* ([types (cdr pft)]
+                   [c (cond
+                        [(null? types) (error 'derive-type-constraints "no types for primfun" pf)]
+                        [(list? types) (mk-overloading (Type t) types)]
+                        [(procedure? types) (mk-constraint (Type t) (types))]
+                        [else (mk-constraint (Type t) types)])])
+              (values `(primfun ,pf ,t) t (cons c cs))))]
+         [else (error 'derive-type-constraints "untypeable primfun" pf)]
+         )
+       ]
       [(vector ,nv ,t) (let ([t^ (Type t)]) (values `(vector ,nv ,t^) t^ cs))]
       [(scalar ,n ,t) (let ([t^ (Type t)]) (values `(scalar ,n ,t^) t^ cs))]
       [(apply ,e0 ,e1 ,t)
