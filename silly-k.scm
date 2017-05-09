@@ -196,7 +196,7 @@
     (extends L2)
     (entry Program)
     (Program (p)
-      (+ (program e (s ...))))
+      (+ (program e (s* ...))))
     (Expr (e)
       (- (dfn e))
       (- (apply e))
@@ -321,7 +321,12 @@
       (+ (t0 t1)))
     (Expr (e)
       (- (lambda s e))
-      (+ (lambda (s t0) e t1))))
+      (+ (lambda (s t0) e t1)))
+    (Global (g)
+      (+ (s t)))
+    (Program (p)
+      (- (program e (s* ...)))
+      (+ (program e t (g* ...)))))
 
   (define-pass type-lambda-abstractions : L5 (e) -> L6 ()
     (definitions
@@ -331,13 +336,16 @@
           [else (error 'type-lambda-abstractions "unbound symbol" s env)]))
       (with-output-language (L6 Type)
         (define (mk-lambda-type t0 t1) `(,t0 ,t1)))
-      )
+      (with-output-language (L6 Global)
+        (define (mk-global-binding st) `(,(car st) ,(cdr st)))))
     (Type : Type (t) -> Type ())
     (Expr : Expr (e env) -> Expr (t env)
       [(,s ,t) (values `(,s ,t) t (cons (cons s t) env))]
       [(primfun ,pf ,t)
        (values `(primfun ,pf ,t) t env)]
-      [(vector ,nv ,t) (values `(vector ,nv ,[Type t]) t env)]
+      [(vector ,nv ,t)
+       (let ([t^ (Type t)])
+         (values `(vector ,nv ,t^) t^ env))]
       [(scalar ,n ,t) (values `(scalar ,n ,[Type t]) t env)]
       [(apply ,e0 ,e1 ,t)
        (let*-values ([(e0^ t0 env0) (Expr e0 env)]
@@ -350,9 +358,10 @@
          (let ([t^ (mk-lambda-type t0 t1)])
            (values `(lambda (,s ,t0) ,e^ ,t^) t^ env^^)))])
     (Program : Program (p) -> Program ()
-      [(program ,e (,s ...))
+      [(program ,e (,s* ...))
        (let-values ([(e^ t env) (Expr e '())])
-         `(program ,e^ (,s ...)))]))
+         (let ([g* (map mk-global-binding env)])
+           `(program ,e^ ,t (,g* ...))))]))
 
 ;
 ;  (define functions

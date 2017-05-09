@@ -36,6 +36,7 @@
 (compiler "1+2+3+4")
 (compiler "foo")
 (compiler "foo bar")
+(compiler "1")
 (compiler "1 2 3")
 (compiler "{w}")
 (compiler "{a}")
