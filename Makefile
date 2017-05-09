@@ -8,7 +8,7 @@ test:
 
 .PHONY: clean
 clean:
-	rm -f silly_* *.cmx *.cmi *.o
+	rm -vf silly_* tests/*.cmx tests/*.cmi tests/*.o tests/*.bin tests/*.mlf
 
 .PHONY: snippet
 snippet:

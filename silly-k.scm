@@ -1,6 +1,20 @@
-;(library
-;  (silly-k)
-;  (export compile-silly-k compile-silly-k-and-run)
+(library
+  (silly-k)
+  (export compile-silly-k
+          compile-silly-k-and-run
+          compiler
+          debug-passes
+          parse-silly-k                  id
+          ast-to-Lsrc                    unparse-Lsrc
+          differentiate-scalars          unparse-L1
+          translate-to-primfuns          unparse-L2
+          introduce-lambda-abstractions  unparse-L3
+          type-scalars-and-vectors       unparse-L4
+          introduce-fresh-typevars       unparse-L5
+          type-lambda-abstractions       unparse-L6
+          derive-type-constraints        unparse-L7
+          unify-and-substitute-types     unparse-L8
+          output-malfunction)
   (import (nanopass)
           (chezscheme)
           (silly-k tools)
@@ -401,11 +415,14 @@
                                   (let ([a (fresh-typevar)]
                                         [b (fresh-typevar)])
                                     `(lambda (lambda ,a ,b) (lambda (vector ,a) (vector ,b))))))
-            (cons 'minus        `(lambda int (lambda int int)))
+            (cons 'minus        (list
+                                  `(lambda int int)
+                                  `(lambda int (lambda int int))))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-constraint t0 t1) `(,t0 ,t1))
-        (define (mk-overloading t0 t*) `(overloaded ,t0 (,t* ...)))))
+        (define (mk-overloading t0 t*) `(overloaded ,t0 (,t* ...)))
+        (define (mk-output-constraint t) `(overloaded ,t (int (vector int))))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -440,7 +457,9 @@
     (Program : Program (p) -> Program ()
       [(program ,e ,t (,g* ...))
        (let-values ([(e^ t^ cs) (Expr e '())])
-        `(program ,e^ ,t^ (,(map Global g*) ...) (,cs ...)))]))
+        (let* ([output-constraint (mk-output-constraint t^)]
+               [cs^ (cons output-constraint cs)])
+          `(program ,e^ ,t^ (,(map Global g*) ...) (,cs^ ...))))]))
 
   (define (typevar-type? x)
     (and (list? x) (= 2 (length x)) (equal? 'typevar (car x))))
@@ -488,12 +507,18 @@
                         [else #f])]
                      [(and (lambda-type? s) (lambda-type? t))
                       (unify (append cs^ (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t)))))]
+                     [(and (vector-type? s) (vector-type? t))
+                      (unify (append cs^ (list (list (cadr s) (cadr t)))))]
                      [else #f]))])
         (if (overloaded-constraint? c)
           (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
             (if (= 1 (length alts))
               (car alts)
-              #f))
+              (if (null? alts)
+                (begin
+                  (format "warning! ambiguous overloading~%")
+                  #f)
+                #f)))
           (let ([s (car c)] [t (cadr c)]) (go s t))))))
 
   (define-language
@@ -537,236 +562,182 @@
            [else (error 'unify-and-substitute-types "unable to unify types" cs)]
           ))]))
 
-;
-;  (define functions
-;    '(((plus vector vector)    . (pointwise-addition vector))
-;      ((plus scalar vector)    . (distribute-addition vector))
-;      ((plus scalar scalar)    . (scalar-addition scalar))
-;      ((minus scalar scalar)   . (scalar-substraction scalar))
-;      ((minus #f scalar)       . (scalar-negation scalar))
-;      (((over plus) #f vector) . (reduce-addition scalar))
-;      (((system 0) #f #f)      . (system-read-vector vector))
-;      (((system 1) #f #f)      . (system-read-scalar scalar))
-;      ))
-;
-;  (define primfun?
-;    (lambda (x)
-;      (not (not (memq x (map cadr functions))))))
-;
-;  (define-language
-;    L2
-;    (extends L1)
-;    (terminals
-;      (+ (primfun (pf))))
-;    (Fun (f)
-;      (- v)
-;      (- (system n))
-;      (- (adverb a f)))
-;    (Expr (e)
-;      (- (apply f))
-;      (+ (apply pf))
-;      (- (apply f e))
-;      (+ (apply pf e))
-;      (- (apply f e0 e1))
-;      (+ (apply pf e0 e1))))
-;
-;  (define-pass choose-primitive-functions : L1 (e) -> L2 (k)
-;               (Expr : Expr (e) -> Expr (#f)
-;                     [(scalar ,n) (values `(scalar ,n) 'scalar)]
-;                     [(vector ,nv) (values `(vector ,nv) 'vector)]
-;                     [(apply (system ,n))
-;                      (let* ([fk (list (list 'system n) #f #f)]
-;                             [mf (assoc fk functions)])
-;                        (if mf
-;                          (values `(apply ,[cadr mf]) (caddr mf))
-;                          (error 'choose-primitive-functions "unsupported combination" fk)))]
-;                     [(apply ,v ,e)
-;                      (let-values ([(e^ l) (Expr e)])
-;                                  (let* ([fk (list v #f l)]
-;                                         [mf (assoc fk functions)])
-;                                    (if mf
-;                                      (values `(apply ,[cadr mf] ,e^) (caddr mf))
-;                                      (error 'choose-primitive-functions "unsupported combination" fk))))]
-;                     [(apply (adverb ,a ,f) ,e)
-;                      (let-values ([(e^ l) (Expr e)])
-;                                  (let* ([fk (list (list a f) #f l)]
-;                                         [mf (assoc fk functions)])
-;                                    (if mf
-;                                      (values `(apply ,[cadr mf] ,e^) (caddr mf))
-;                                      (error 'choose-primitive-functions "unsupported combination" fk))))]
-;                     [(apply ,v ,e0 ,e1)
-;                      (let-values ([(e0^ l0) (Expr e0)]
-;                                   [(e1^ l1) (Expr e1)])
-;                                  (let* ([fk (list v l0 l1)]
-;                                         [mf (assoc fk functions)])
-;                                    (if mf
-;                                      (values `(apply ,[cadr mf] ,e0^ ,e1^) (caddr mf))
-;                                      (error 'choose-primitive-functions "unsupported combination" fk))))]
-;                     [else (error 'choose-primitive-functions "unsupported verb" e)])
-;               (Expr e))
-;
-;  (define-language L3
-;                   (extends L2)
-;                   (entry Program)
-;                   (Program (p)
-;                            (+ (program e))))
-;
-;  (define-pass wrap : L2 (e) -> L3 ()
-;               (Expr : Expr (e) -> Expr ())
-;               `(program ,(Expr e)))
-;
-;  (define (malfunction-print-scalar i)
-;    `(apply (global $Pervasives $print_int) ,i))
-;
-;  (define malfunction-unit
-;    '(block (tag 0)))
-;
-;  (define malfunction-print-newline
-;    `(apply (global $Pervasives $print_newline) ,malfunction-unit))
-;
-;  (define malfunction-print-space
-;    `(apply (global $Pervasives $print_char) 32))
-;
-;  (define (malfunction-error reason code)
-;    `(seq (apply (global $Pervasives $prerr_endline) ,reason)
-;          (apply (global $Pervasives $exit) ,code)))
-;
-;  (define malfunction-length-error
-;    (malfunction-error "length error" 3))
-;
-;  (define (malfunction-print-vector l)
-;    `(let ($n (length ,l))
-;       (apply (global $Array $iteri)
-;              (lambda ($i $x)
-;                (seq
-;                  ,(malfunction-print-scalar '$x)
-;                  (if (< (+ $i 1) $n)
-;                    ,malfunction-print-space
-;                    ,malfunction-unit)))
-;              ,l)))
-;
-;  (define malfunction-map-lambda
-;    `(lambda ($f $v)
-;       (apply (global $Array $map) $f $v)))
-;
-;  (define malfunction-zip-lambda
-;    `(lambda ($f $v $w)
-;       (let
-;         ($n (length $v))
-;         ($m (length $w))
-;         (if (== $n $m)
-;           (apply (global $Array $map2) $f $v $w)
-;           ,malfunction-length-error))))
-;
-;  (define malfunction-foldr-lambda
-;    `(lambda ($f $b $v)
-;       (apply (global $Array $fold_right) $f $v $b)))
-;
-;  (define (make-malfunction-vector l)
-;    (letrec ([go (lambda (i k)
-;                   (if (null? k)
-;                     '()
-;                     (cons `(store $v ,i ,(car k)) (go (+ i 1) (cdr k)))))])
-;      (let ([body (append '(seq) (go 0 l) '($v))])
-;        `(let ($v (makevec ,(length l) 0)) ,body))))
-;
-;  (define (malfunction-print kind x)
-;    (cond
-;      [(eq? kind 'scalar) (malfunction-print-scalar x)]
-;      [(eq? kind 'vector) (malfunction-print-vector x)]
-;      [else (error 'malfunction-print "unknown kind" kind)]))
-;
-;  (define malfunction-read-scalar-lambda
-;    `(lambda ($x)
-;       (apply (global $Pervasives $read_int) ,malfunction-unit)))
-;
-;  (define malfunction-read-vector-lambda
-;    `(lambda ($x)
-;       (apply (global $Array $map)
-;              (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
-;              (apply (global $Array $of_list)
-;                     (apply (global $Str $split) (apply (global $Str $regexp) " +")
-;                            (apply (global $Pervasives $read_line) ,malfunction-unit))))))
-;
-;  (define-pass output-malfunction : L3 (e k) -> * ()
-;               (Expr : Expr (e) -> * ()
-;                     [(scalar ,n) n]
-;                     [(vector ,nv) (make-malfunction-vector nv)]
-;                     [(apply ,pf)
-;                      (cond
-;                        [(eq? pf 'system-read-vector)
-;                         `(apply $read_vector ,malfunction-unit)]
-;                        [(eq? pf 'system-read-scalar)
-;                         `(apply $read_scalar ,malfunction-unit)]
-;                        [else (error 'output-malfunction "unsupported nullary primitive function" pf)])]
-;                     [(apply ,pf ,e)
-;                      (cond
-;                        [(eq? pf 'reduce-addition)
-;                         (let ([a (Expr e)])
-;                           `(apply $foldr (lambda ($x $y) (+ $x $y)) 0 ,a))]
-;                        [(eq? pf 'scalar-negation)
-;                         (let ([a (Expr e)])
-;                           `(- 0 ,a))]
-;                        [else (error 'output-malfunction "unsupported monadic primitive function" pf)])]
-;                     [
-;                      (apply ,pf ,e0 ,e1)
-;                      (let ([with-evaluated-args (lambda (e)
-;                                                   `(let ($b ,[Expr e1]) ($a ,[Expr e0]) ,e))])
-;                        (cond
-;                          [(eq? pf 'scalar-addition)
-;                           (with-evaluated-args `(+ $a $b))]
-;                          [(eq? pf 'scalar-substraction)
-;                           (with-evaluated-args `(- $a $b))]
-;                          [(eq? pf 'distribute-addition)
-;                           (with-evaluated-args
-;                             `(apply $map (lambda ($x) (+ $a $x)) $b))]
-;                          [(eq? pf 'pointwise-addition)
-;                           (with-evaluated-args
-;                             `(apply $zip (lambda ($x $y) (+ $x $y)) $a $b))]
-;                          [else (error 'output-malfunction "unsupported dyadic primitive function" pf)])) ]
-;                      [else (error 'output-malfunction "unsupported expr")])
-;               (Program : Program (p) -> *()
-;                        [(program ,e)
-;                         `(module
-;                            ($map ,malfunction-map-lambda)
-;                            ($zip ,malfunction-zip-lambda)
-;                            ($foldr ,malfunction-foldr-lambda)
-;                            ($read_scalar ,malfunction-read-scalar-lambda)
-;                            ($read_vector ,malfunction-read-vector-lambda)
-;                            ($x ,[Expr e])
-;                            (_ ,(malfunction-print k '$x))
-;                            (_ ,malfunction-print-newline)
-;                            (export))
-;                         ]))
-;
-;  (define (compiler)
-;    (let-values
-;      ([(e k)
-;        (choose-primitive-functions
-;          (differentiate-scalars
-;            (ast-to-Lsrc
-;              (parse-silly-k))))])
-;      (output-malfunction (wrap e) k)))
-;
-;  (define compile-silly-k
-;    (lambda (o)
-;      (compile-malfunction o (compiler))))
-;
-;  (define (compile-silly-k-and-run)
-;    (compile "a.out")
-;    (assert (= 0 (system "./a.out")))
-;    (void))
-;
-;  (define compile-malfunction
-;    (lambda (out mlf)
-;      (let* ([pn (port-name (current-input-port))]
-;             [fn (string-append pn ".mlf")] )
-;        (with-output-to-file fn
-;          (lambda ()
-;            (write mlf)
-;            (flush-output-port)
-;            (assert (= 0 (system (format "malfunction cmx ~s" fn))))
-;            (assert (= 0 (system (format "ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out pn)))))
-;          '(replace)))))
-;
-;  )
+
+
+  (define-pass output-malfunction : L8 (e) -> * ()
+    (definitions
+      (define (mlf-symbol s) (string->symbol (format "$~s" s)))
+      (define (malfunction-print-scalar i) `(apply (global $Pervasives $print_int) ,i))
+      (define mlf-unit '(block (tag 0)))
+      (define malfunction-print-newline
+        `(apply (global $Pervasives $print_newline) ,mlf-unit))
+      (define malfunction-print-space
+        `(apply (global $Pervasives $print_char) 32))
+      (define (malfunction-error reason code)
+        `(seq (apply (global $Pervasives $prerr_endline) ,reason)
+              (apply (global $Pervasives $exit) ,code)))
+      (define malfunction-length-error
+        (malfunction-error "length error" 3))
+      (define (malfunction-print-vector l)
+        `(let ($n (length ,l))
+           (apply (global $Array $iteri)
+                  (lambda ($i $x)
+                    (seq
+                      ,(malfunction-print-scalar '$x)
+                      (if (< (+ $i 1) $n)
+                        ,malfunction-print-space
+                        ,mlf-unit)))
+                  ,l)))
+      (define malfunction-map-lambda
+        `(lambda ($f $v)
+           (apply (global $Array $map) $f $v)))
+      (define malfunction-zip-lambda
+        `(lambda ($f $v $w)
+           (let
+             ($n (length $v))
+             ($m (length $w))
+             (if (== $n $m)
+               (apply (global $Array $map2) $f $v $w)
+               ,malfunction-length-error))))
+      (define malfunction-foldr-lambda
+        `(lambda ($f $b $v)
+           (apply (global $Array $fold_right) $f $v $b)))
+      (define (make-malfunction-vector l)
+        (letrec ([go (lambda (i k)
+                       (if (null? k)
+                         '()
+                         (cons `(store $v ,i ,(car k)) (go (+ i 1) (cdr k)))))])
+          (let ([body (append '(seq) (go 0 l) '($v))])
+            `(let ($v (makevec ,(length l) 0)) ,body))))
+      (define (malfunction-print t x)
+        (cond
+          [(equal? t 'int) (malfunction-print-scalar x)]
+          [(equal? t '(vector int)) (malfunction-print-vector x)]
+          [else (error 'malfunction-print "unknown type" t)]))
+      (define malfunction-read-scalar-lambda
+        `(lambda ($x)
+           (apply (global $Pervasives $read_int) ,mlf-unit)))
+      (define malfunction-read-vector-lambda
+        `(lambda ($x)
+           (apply (global $Array $map)
+                  (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
+                  (apply (global $Array $of_list)
+                         (apply (global $Str $split) (apply (global $Str $regexp) " +")
+                                (apply (global $Pervasives $read_line) ,mlf-unit))))))
+          )
+    (Expr : Expr (e) -> * ()
+      [(,s ,t) (mlf-symbol s)]
+      [(scalar ,n ,t) n]
+      [(vector ,nv ,t) (make-malfunction-vector nv)]
+      [(primfun ,pf ,t)
+       (let ([t^ (Type t)])
+         (cond
+           [(and (equal? pf 'minus) (equal? '(lambda int (lambda int int)) t^))
+            `(lambda ($x $y) (- $y $x))]
+           [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
+            `(lambda ($x) (neg $x))]
+           [(and (equal? pf 'plus) (equal? '(lambda int (lambda int int)) t^))
+            `(lambda ($x $y) (+ $x $y))]
+           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
+            `(lambda ($x $xs) (apply $map (lambda ($y) (+ $x $y)) $xs))]
+           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
+            `(lambda ($xs $x) (apply $map (lambda ($x $y) (+ $x $y)) $xs))]
+           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
+            `(lambda ($ys) (lambda ($xs) (apply $zip (lambda ($x $y) (+ $x $y)) $xs $ys)))]
+           [(and (equal? pf 'map) (equal? '(lambda (lambda int int) (lambda (vector int) (vector int))) t^))
+            `(lambda ($f) (lambda (xs) (apply $map $f xs)))]
+           [(and (equal? pf 'input-vector) (equal? '(vector int) t^))
+            `(apply $read_vector ,mlf-unit)]
+           [(and (equal? pf 'input-scalar) (equal? 'int t^))
+            `(apply $read_scalar ,mlf-unit)]
+           [else (error 'output-malfunction "unsupported primitive function" pf t^)]))]
+      [(apply ,e0 ,e1 ,t) `(apply ,(Expr e0) ,(Expr e1))]
+      [(lambda (,s ,t0) ,e ,t1) `(lambda (,[mlf-symbol s]) ,[Expr e])]
+      [else (error 'output-malfunction "unsupported expr" e)])
+    (Type : Type (t) -> * ()
+      [(vector ,t) `(vector ,t)]
+      [(lambda ,t0 ,t1) `(lambda ,(Type t0) ,(Type t1))]
+      [,int int])
+    (Program : Program (p) -> * ()
+      [(program ,e ,t (,g* ...))
+       `(module
+          ($map ,malfunction-map-lambda)
+          ($zip ,malfunction-zip-lambda)
+          ($foldr ,malfunction-foldr-lambda)
+          ($read_scalar ,malfunction-read-scalar-lambda)
+          ($read_vector ,malfunction-read-vector-lambda)
+          ($x ,[Expr e])
+          (_ ,(malfunction-print (Type t) '$x))
+          (_ ,malfunction-print-newline)
+          (export))
+       ]))
+
+  (define (id x) x)
+
+  (define passes
+    '((parse-silly-k                 . id)
+      (ast-to-Lsrc                   . unparse-Lsrc)
+      (differentiate-scalars         . unparse-L1)
+      (translate-to-primfuns         . unparse-L2)
+      (introduce-lambda-abstractions . unparse-L3)
+      (type-scalars-and-vectors      . unparse-L4)
+      (introduce-fresh-typevars      . unparse-L5)
+      (type-lambda-abstractions      . unparse-L6)
+      (derive-type-constraints       . unparse-L7)
+      (unify-and-substitute-types    . unparse-L8)
+      (output-malfunction            . id)
+      ))
+
+
+  (define (debug-passes s)
+    (display "> ")
+    (display s)
+    (newline)
+
+    (fold-left (lambda (acc p)
+                 (let* ([pass (car p)]
+                        [unparser (cdr p)]
+                        [expr (cond
+                                [(null? acc) (list pass)]
+                                [else (list pass acc)])])
+                   (pretty-print ((eval unparser) (with-input-from-string s (lambda () (eval expr)))))
+                   expr))
+               '()
+               passes)
+    (newline))
+
+  (define (compiler)
+    (output-malfunction
+      (unify-and-substitute-types
+        (derive-type-constraints
+          (type-lambda-abstractions
+            (introduce-fresh-typevars
+              (type-scalars-and-vectors
+                (introduce-lambda-abstractions
+                  (translate-to-primfuns
+                    (differentiate-scalars
+                      (ast-to-Lsrc
+                        (parse-silly-k))))))))))))
+
+  (define compile-silly-k
+    (lambda (o)
+      (compile-malfunction o (compiler))))
+
+  (define (compile-silly-k-and-run)
+    (compile "a.out")
+    (assert (= 0 (system "./a.out")))
+    (void))
+
+  (define compile-malfunction
+    (lambda (out mlf)
+      (let* ([pn (port-name (current-input-port))]
+             [fn (string-append pn ".mlf")] )
+        (with-output-to-file fn
+          (lambda ()
+            (write mlf)
+            (flush-output-port)
+            (assert (= 0 (system (format "malfunction cmx ~s" fn))))
+            (assert (= 0 (system (format "ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out pn)))))
+          '(replace)))))
+
+  )
