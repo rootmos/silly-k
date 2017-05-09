@@ -44,6 +44,7 @@
 ;(compiler "{1+w}2 3 4")
 ;(compiler "(1:)+0:")
 ;(compiler "{1+w}'1 2 3")
+(compiler "{1-w}'1 2 3")
 ;(compiler "{x w w}")
 ;(compiler "{w+{w}}2")
 ;(compiler "1+1 2 3")

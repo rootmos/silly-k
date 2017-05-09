@@ -445,6 +445,9 @@
   (define (lambda-type? x)
     (and (list? x) (= 3 (length x)) (equal? 'lambda (car x))))
 
+  (define (vector-type? x)
+    (and (list? x) (= 2 (length x)) (equal? 'vector (car x))))
+
   (define (occurs x xs)
     (cond
       [(lambda-type? xs) (fold-left (lambda (acc ys) (or acc (occurs x ys))) #f (cdr xs))]
@@ -506,6 +509,7 @@
      (mk-Type : * (t) -> Type ()
        (cond
          [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
+         [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
          [else t]))
      (Expr : Expr (e sub) -> Expr ()
        [(primfun ,pf ,t) `(primfun ,pf ,(Type t sub))]
