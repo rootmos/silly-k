@@ -3,11 +3,12 @@
 (define (id x) x)
 
 (define passes
-  '((parse-silly-k         . id)
-    (ast-to-Lsrc           . unparse-Lsrc)
-    (differentiate-scalars . unparse-L1)
-    (translate-to-primfuns . unparse-L2)
-    (introduce-lambda-abstractions . unparse-L3)))
+  '((parse-silly-k                 . id)
+    (ast-to-Lsrc                   . unparse-Lsrc)
+    (differentiate-scalars         . unparse-L1)
+    (translate-to-primfuns         . unparse-L2)
+    (introduce-lambda-abstractions . unparse-L3)
+    (introduce-fresh-typevars      . unparse-L4)))
 
 
 (define (compiler s)

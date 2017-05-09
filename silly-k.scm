@@ -166,7 +166,7 @@
       (- v)
       (- (system n))
       (- (adverb a e))
-      (+ pf)))
+      (+ (primfun pf))))
 
   (define to-primfun-table
     '((plus . plus)
@@ -187,9 +187,9 @@
 
   (define-pass translate-to-primfuns : L1 (e) -> L2 ()
     (Expr : Expr (e) -> Expr ()
-      [(adverb ,a ,e) `(apply ,[translate-to-primfun a] ,[Expr e])]
-      [(system ,n) [translate-to-primfun n]]
-      [,v [translate-to-primfun v]]))
+      [(adverb ,a ,e) `(apply (primfun ,[translate-to-primfun a]) ,[Expr e])]
+      [(system ,n) `(primfun ,[translate-to-primfun n])]
+      [,v `(primfun ,[translate-to-primfun v])]))
 
   (define-language
     L3
@@ -201,12 +201,12 @@
       (- (dfn e))
       (- (apply e))
       (- (apply e0 e1 e2))
-      (+ (lambda s e1))))
+      (+ (lambda s e))))
 
    (define-pass introduce-lambda-abstractions : L2 (e) -> L3 ()
       (Expr : Expr (e) -> Expr (fv)
-        [,pf (values pf '())]
         [,s (values s (list s))]
+        [(primfun ,pf) (values `(primfun ,pf) '())]
         [(scalar ,n) (values `(scalar ,n) '())]
         [(vector ,nv) (values `(vector ,nv) '())]
         [(apply ,e)
@@ -239,6 +239,65 @@
              )))])
       (let-values ([(e^ fv) (Expr e)])
         `(program ,e^ (,fv ...))))
+
+  (define (int? e) (eqv? e 'int))
+  (define (typevar? e) (symbol? e))
+
+  (define-language
+    L4
+    (extends L3)
+    (entry TypedProgram)
+    (terminals
+      (+ (typevar (tv)))
+      (+ (int (int))))
+    (Program (p)
+      (- (program e (s ...))))
+    (TypedProgram (tp)
+      (+ (program te (s ...))))
+    (Type (t)
+      (+ tv)
+      (+ int)
+      (+ (vector t)))
+    (Expr (e)
+      (- s)
+      (- (primfun pf))
+      (- (vector nv))
+      (- (scalar n))
+      (- (apply e0 e1))
+      (- (lambda s e)))
+    (TypedExpr (te)
+      (+ (s t))
+      (+ (primfun pf t))
+      (+ (vector nv t))
+      (+ (scalar n t))
+      (+ (apply te0 te1 t))
+      (+ (lambda (s t0) te t1))))
+
+
+  (define-pass introduce-fresh-typevars : L3 (e) -> L4 ()
+    (definitions
+      (define typevar-counter 0)
+      (define fresh-typevar
+        (lambda ()
+          (let ([c typevar-counter])
+            (set! typevar-counter (+ c 1))
+            (string->symbol (format "T~s" c))))))
+    (Expr : Expr (e) -> TypedExpr ()
+      [,s `(,s ,[fresh-typevar])]
+      [(primfun ,pf) `(primfun ,pf ,[fresh-typevar])]
+      [(vector ,nv) `(vector ,nv (vector int))]
+      [(scalar ,n) `(scalar ,n int)]
+      [(apply ,e0 ,e1)
+       (let ([te0 (Expr e0)]
+             [te1 (Expr e1)])
+         `(apply ,te0 ,te1 ,[fresh-typevar]))]
+      [(lambda ,s ,e)
+       (let ([te (Expr e)])
+         `(lambda (,s ,[fresh-typevar]) ,te ,[fresh-typevar]))])
+    (Program : Program (p) -> TypedProgram ()
+      [(program ,e (,s ...))
+       (let ([te (Expr e)])
+         `(program ,te (,s ...)))]))
 
 ;
 ;  (define functions
