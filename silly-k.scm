@@ -186,7 +186,7 @@
     '((plus . plus)
       (minus . minus)
       (each . map)
-      (over . foldr)
+      (over . reduce)
       (0 . input-vector)
       (1 . input-scalar)))
 
@@ -415,6 +415,9 @@
                                   (let ([a (fresh-typevar)]
                                         [b (fresh-typevar)])
                                     `(lambda (lambda ,a ,b) (lambda (vector ,a) (vector ,b))))))
+            (cons 'reduce       (lambda ()
+                                  (let ([a (fresh-typevar)])
+                                    `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a)))))
             (cons 'minus        (list
                                   `(lambda int int)
                                   `(lambda int (lambda int int))))
@@ -645,7 +648,10 @@
            [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
             `(lambda ($ys $xs) (apply $zip (lambda ($x $y) (+ $x $y)) $xs $ys))]
            [(and (equal? pf 'map) (equal? '(lambda (lambda int int) (lambda (vector int) (vector int))) t^))
-            `(lambda ($f) (lambda (xs) (apply $map $f xs)))]
+            `(lambda ($f $xs) (apply $map $f $xs))]
+           [(and (equal? pf 'reduce) (equal? '(lambda (lambda int (lambda int int)) (lambda (vector int) int)) t^))
+            ; TODO: properly figure out the monoid zero (how to handle minus?)
+            `(lambda ($f $xs) (apply $foldr $f 0 $xs))]
            [(and (equal? pf 'input-vector) (equal? '(vector int) t^))
             `(apply $read_vector ,mlf-unit)]
            [(and (equal? pf 'input-scalar) (equal? 'int t^))
