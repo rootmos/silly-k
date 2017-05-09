@@ -391,7 +391,10 @@
         (define (mk-lambda-type t0 t1) `(lambda ,t0 ,t1))
         (define primfun-types-table
           (list
-            (cons 'plus         (list `(lambda int int) `(lambda int (vector int))))
+            (cons 'plus         (list `(lambda int (lambda int int))
+                                      `(lambda int (lambda (vector int) (vector int)))
+                                      `(lambda (vector int) (lambda int (vector int)))
+                                      `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'input-vector `(vector int))
             (cons 'input-scalar 'int)
             (cons 'map          (lambda ()
@@ -448,6 +451,9 @@
   (define (vector-type? x)
     (and (list? x) (= 2 (length x)) (equal? 'vector (car x))))
 
+  (define (overloaded-constraint? x)
+    (and (list? x) (= 3 (length x)) (equal? 'overloaded (car x))))
+
   (define (occurs x xs)
     (cond
       [(lambda-type? xs) (fold-left (lambda (acc ys) (or acc (occurs x ys))) #f (cdr xs))]
@@ -456,6 +462,8 @@
   (define (substitute x y xs)
     (cond
       [(lambda-type? xs) (cons 'lambda (map (lambda (ys) (substitute x y ys)) (cdr xs)))]
+      [(overloaded-constraint? xs)
+       (list 'overloaded (substitute x y (cadr xs)) (map (lambda (ys) (substitute x y ys)) (caddr xs)))]
       [(and (typevar-type? xs) (equal? x xs)) y]
       [(list? xs) (map (lambda (ys) (substitute x y ys)) xs)]
       [else xs]))
@@ -464,26 +472,29 @@
     (if (null? cs)
       (lambda (x) x)
       (let* ([c (car cs)]
-             [cs^ (cdr cs)])
-        (if (equal? 'overloaded (car c))
-          (error 'unify "overloading not supported (yet)!")
-          (let ([s (car c)]
-                [t (cadr c)])
-            (cond
-              [(equal? s t) (unify cs^)]
-              [(and (typevar-type? s) (not (occurs s t)))
-               (cond
-                 [(unify (substitute s t cs^)) => (lambda (f)
-                                                    (lambda (x) (f (substitute s t x))))]
-                 [else #f])]
-              [(and (typevar-type? t) (not (occurs t s)))
-               (cond
-                 [(unify (substitute t s cs^)) => (lambda (f)
-                                                    (lambda (x) (f (substitute t s x))))]
-                 [else #f])]
-              [(and (lambda-type? s) (lambda-type? t))
-               (unify (append cs^ (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t)))))]
-              [else #f]))))))
+             [cs^ (cdr cs)]
+             [go (lambda (s t)
+                   (cond
+                     [(equal? s t) (unify cs^)]
+                     [(and (typevar-type? s) (not (occurs s t)))
+                      (cond
+                        [(unify (substitute s t cs^)) => (lambda (f)
+                                                           (lambda (x) (f (substitute s t x))))]
+                        [else #f])]
+                     [(and (typevar-type? t) (not (occurs t s)))
+                      (cond
+                        [(unify (substitute t s cs^)) => (lambda (f)
+                                                           (lambda (x) (f (substitute t s x))))]
+                        [else #f])]
+                     [(and (lambda-type? s) (lambda-type? t))
+                      (unify (append cs^ (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t)))))]
+                     [else #f]))])
+        (if (overloaded-constraint? c)
+          (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
+            (if (= 1 (length alts))
+              (car alts)
+              #f))
+          (let ([s (car c)] [t (cadr c)]) (go s t))))))
 
   (define-language
     L8
