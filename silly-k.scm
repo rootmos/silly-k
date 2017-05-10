@@ -14,6 +14,7 @@
           type-lambda-abstractions       unparse-L6
           derive-type-constraints        unparse-L7
           unify-and-substitute-types     unparse-L8
+          expand-idioms
           output-malfunction)
   (import (nanopass)
           (chezscheme)
@@ -420,7 +421,8 @@
                                     `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a)))))
             (cons 'minus        (list
                                   `(lambda int int)
-                                  `(lambda int (lambda int int))))
+                                  `(lambda int (lambda int int))
+                                  `(lambda (vector int) (lambda (vector int) (vector int)))))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-constraint t0 t1) `(,t0 ,t1))
@@ -565,6 +567,83 @@
            [else (error 'unify-and-substitute-types "unable to unify types" cs)]
           ))]))
 
+  (define-pass expand-idioms : L8 (e) -> L8 ()
+    (unwrap-Type : Type (t) -> * ()
+      [(vector ,t) `(vector ,t)]
+      [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
+      [,int int])
+    (Expr : Expr (e) -> Expr ()
+      [(primfun ,pf ,t)
+       (let ([t^ (unwrap-Type t)])
+         (cond
+           ; -2 -> 0-2
+           [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
+            `(lambda (x int)
+               (apply
+                 (apply
+                   (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
+                 (scalar 0 int) int) int)]
+           ; 1 2 3+4 -> {w+4}'1 2 3
+           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^)) 
+            `(lambda (x int)
+               (lambda (xs (vector int))
+                 (apply
+                   (apply
+                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+                     (lambda (y int)
+                       (apply
+                         (apply
+                           (primfun plus (lambda int (lambda int int)))
+                           (x int)
+                           (lambda int int))
+                         (y int)
+                         int)
+                       int)
+                     (lambda (vector int) (vector int)))
+                   (xs (vector int))
+                   (vector int))
+                 (vector int))
+               (lambda (vector int) (vector int)))]
+           ; 1+2 3 -> 3 4
+           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
+            `(lambda (xs (vector int))
+               (lambda (x int)
+                 (apply
+                   (apply
+                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+                     (lambda (y int)
+                       (apply
+                         (apply
+                           (primfun plus (lambda int (lambda int int)))
+                           (y int)
+                           (lambda int int))
+                         (x int)
+                         int)
+                       int)
+                     (lambda (vector int) (vector int)))
+                   (xs (vector int))
+                   (vector int))
+                 (vector int))
+               (lambda int (vector int)))]
+           ; 1 2+3 4 or 1 2-3 4
+           [(and (or (equal? pf 'plus) (equal? pf 'minus))
+                 (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
+            `(lambda (ys (vector int))
+               (lambda (xs (vector int))
+                 (apply
+                   (apply
+                     (apply
+                       (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
+                       (primfun ,pf (lambda int (lambda int int)))
+                       (lambda (vector int) (lambda (vector int) (vector int))))
+                     (ys (vector int))
+                     (lambda (vector int) (vector int)))
+                   (xs (vector int))
+                   (vector int))
+                 (vector int))
+               (lambda (vector int) (vector int)))]
+           [else `(primfun ,pf ,t)]))]
+      ))
 
 
   (define-pass output-malfunction : L8 (e) -> * ()
@@ -636,22 +715,17 @@
        (let ([t^ (Type t)])
          (cond
            [(and (equal? pf 'minus) (equal? '(lambda int (lambda int int)) t^))
-            `(lambda ($x $y) (- $y $x))]
-           [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
-            `(lambda ($x) (neg $x))]
+            `(lambda ($y $x) (- $x $y))]
            [(and (equal? pf 'plus) (equal? '(lambda int (lambda int int)) t^))
             `(lambda ($x $y) (+ $x $y))]
-           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
-            `(lambda ($x $xs) (apply $map (lambda ($y) (+ $x $y)) $xs))]
-           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
-            `(lambda ($xs $x) (apply $map (lambda ($y) (+ $x $y)) $xs))]
-           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
-            `(lambda ($ys $xs) (apply $zip (lambda ($x $y) (+ $x $y)) $xs $ys))]
            [(and (equal? pf 'map) (equal? '(lambda (lambda int int) (lambda (vector int) (vector int))) t^))
             `(lambda ($f $xs) (apply $map $f $xs))]
            [(and (equal? pf 'reduce) (equal? '(lambda (lambda int (lambda int int)) (lambda (vector int) int)) t^))
             ; TODO: properly figure out the monoid zero (how to handle minus?)
             `(lambda ($f $xs) (apply $foldr $f 0 $xs))]
+           [(and (equal? pf 'zip) (equal? '(lambda (lambda int (lambda int int))
+                                             (lambda (vector int) (lambda (vector int) (vector int)))) t^))
+            `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
            [(and (equal? pf 'input-vector) (equal? '(vector int) t^))
             `(apply $read_vector ,mlf-unit)]
            [(and (equal? pf 'input-scalar) (equal? 'int t^))
@@ -691,6 +765,7 @@
       (type-lambda-abstractions      . unparse-L6)
       (derive-type-constraints       . unparse-L7)
       (unify-and-substitute-types    . unparse-L8)
+      (expand-idioms                 . unparse-L8)
       (output-malfunction            . id)
       ))
 
@@ -714,16 +789,17 @@
 
   (define (compiler)
     (output-malfunction
-      (unify-and-substitute-types
-        (derive-type-constraints
-          (type-lambda-abstractions
-            (introduce-fresh-typevars
-              (type-scalars-and-vectors
-                (introduce-lambda-abstractions
-                  (translate-to-primfuns
-                    (differentiate-scalars
-                      (ast-to-Lsrc
-                        (parse-silly-k))))))))))))
+      (expand-idioms
+        (unify-and-substitute-types
+          (derive-type-constraints
+            (type-lambda-abstractions
+              (introduce-fresh-typevars
+                (type-scalars-and-vectors
+                  (introduce-lambda-abstractions
+                    (translate-to-primfuns
+                      (differentiate-scalars
+                        (ast-to-Lsrc
+                          (parse-silly-k)))))))))))))
 
   (define compile-silly-k
     (lambda (o)

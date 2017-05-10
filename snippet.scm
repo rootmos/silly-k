@@ -23,5 +23,6 @@
 (debug-passes "1+2-3+4")
 (debug-passes "(1:)+0:")
 (debug-passes "(0:)+0:")
-(debug-passes "-2")
 (debug-passes "+/1 2 3")
+(debug-passes "-2")
+(debug-passes "2-3")
