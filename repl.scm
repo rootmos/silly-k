@@ -6,10 +6,12 @@
                             (values #f))])
     (letrec ([go (lambda ()
                    (display "   ")
-                   (let* ([e (get-line (current-input-port))]
-                          [scm (with-input-from-string e compile-to-scheme)])
+                   (let* ([e (get-line (console-input-port))]
+                          [scm (with-exception-handler
+                                 (lambda (e) (display-condition e) (newline) (go))
+                                 (lambda () (with-input-from-string e compile-to-scheme)))])
                      (when verbose (pretty-print scm))
                      (display (eval scm))
                      (newline)
                      (go)))])
-        (go))))
+          (go))))
