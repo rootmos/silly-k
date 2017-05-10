@@ -15,6 +15,7 @@
           derive-type-constraints        unparse-L7
           unify-and-substitute-types     unparse-L8
           expand-idioms
+          type-check
           output-malfunction)
   (import (nanopass)
           (chezscheme)
@@ -193,7 +194,7 @@
 
   (define primfun?
     (lambda (x)
-      (not (not (memq x (map cdr to-primfun-table))))))
+      (not (not (memq x (append (map cdr to-primfun-table) '(zip)))))))
 
   (define (translate-to-primfun f)
     (cond
@@ -519,11 +520,7 @@
           (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
             (if (= 1 (length alts))
               (car alts)
-              (if (null? alts)
-                (begin
-                  (format "warning! ambiguous overloading~%")
-                  #f)
-                #f)))
+              #f))
           (let ([s (car c)] [t (cadr c)]) (go s t))))))
 
   (define-language
@@ -582,9 +579,9 @@
                (apply
                  (apply
                    (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
-                 (scalar 0 int) int) int)]
+                 (scalar 0 int) int) (lambda int int))]
            ; 1 2 3+4 -> {w+4}'1 2 3
-           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^)) 
+           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
             `(lambda (x int)
                (lambda (xs (vector int))
                  (apply
@@ -598,12 +595,12 @@
                            (lambda int int))
                          (y int)
                          int)
-                       int)
+                     (lambda int int))
                      (lambda (vector int) (vector int)))
                    (xs (vector int))
                    (vector int))
-                 (vector int))
-               (lambda (vector int) (vector int)))]
+                 (lambda (vector int) (vector int)))
+               (lambda int (lambda (vector int) (vector int))))]
            ; 1+2 3 -> 3 4
            [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
             `(lambda (xs (vector int))
@@ -619,12 +616,12 @@
                            (lambda int int))
                          (x int)
                          int)
-                       int)
+                       (lambda int int))
                      (lambda (vector int) (vector int)))
                    (xs (vector int))
                    (vector int))
                  (vector int))
-               (lambda int (vector int)))]
+               (lambda (vector int) (lambda int (vector int))))]
            ; 1 2+3 4 or 1 2-3 4
            [(and (or (equal? pf 'plus) (equal? pf 'minus))
                  (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
@@ -640,10 +637,46 @@
                      (lambda (vector int) (vector int)))
                    (xs (vector int))
                    (vector int))
-                 (vector int))
-               (lambda (vector int) (vector int)))]
+                 (lambda (vector int) (vector int)))
+               (lambda (vector int) (lambda (vector int) (vector int))))]
            [else `(primfun ,pf ,t)]))]
       ))
+
+  (define-pass type-check  : L8 (e) -> L8 ()
+    (unwrap-Type : Type (t) -> * ()
+      [(vector ,t) `(vector ,t)]
+      [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
+      [,int int])
+    (Expr : Expr (e) -> Expr (t)
+      [(,s ,t) (values `(,s ,t) (unwrap-Type t))]
+      [(primfun ,pf ,t) (values `(primfun ,pf ,t) (unwrap-Type t))]
+      [(scalar ,n ,t) (values `(scalar ,n ,t) (unwrap-Type t))]
+      [(vector ,nv ,t) (values `(vector ,nv ,t) (unwrap-Type t))]
+      [(apply ,e0 ,e1 ,t)
+       (let-values ([(e0^ t0^) (Expr e0)]
+                    [(e1^ t1^) (Expr e1)]
+                    [(ut) (unwrap-Type t)])
+         (cond
+           [(and (lambda-type? t0^)
+                 (equal? (cadr t0^) t1^)
+                 (equal? (caddr t0^) ut))
+            (values `(apply ,e0^ ,e1^ ,t) ut)]
+           [else (error 'type-check "type error in application"
+                        (list (unparse-L8 e0^) t0^) (list (unparse-L8 e1^) t1^) ut)]))]
+      [(lambda (,s ,t0) ,e ,t1)
+       (let-values ([(e^ t1^) (Expr e)]
+                    [(ut0) (unwrap-Type t0)]
+                    [(ut1) (unwrap-Type t1)])
+         ; TODO: verify type of symbol (s: t0) in e
+         (values `(lambda (,s ,t0) ,e^ ,t1) ut1))]
+      [else (error 'type-check "yo")])
+    (Program : Program (p) -> Program ()
+      [(program ,e ,t (,g* ...))
+       (let-values ([(e^ t^) (Expr e)])
+         (let ([ut (unwrap-Type t)])
+           (cond
+             [(equal? ut t^) `(program ,e^ ,t (,g* ...))]
+             [else (error 'type-check "type error in program" (list e ut) (list e^ t^))])))]))
 
 
   (define-pass output-malfunction : L8 (e) -> * ()
@@ -765,8 +798,10 @@
       (type-lambda-abstractions      . unparse-L6)
       (derive-type-constraints       . unparse-L7)
       (unify-and-substitute-types    . unparse-L8)
+      (type-check                    . unparse-L8)
       (expand-idioms                 . unparse-L8)
-      (output-malfunction            . id)
+      (type-check                    . unparse-L8)
+      ;(output-malfunction            . id)
       ))
 
 
