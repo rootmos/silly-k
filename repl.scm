@@ -1,0 +1,15 @@
+(import (silly-k) (rnrs))
+
+(let ([args (cdr (command-line))])
+  (let-values ([(verbose) (if (and (not (null? args)) (equal? (car args) "-v"))
+                            (values #t)
+                            (values #f))])
+              (letrec ([go (lambda ()
+                             (display "   ")
+                             (let* ([e (get-line (current-input-port))]
+                                    [scm (with-input-from-string e compile-to-scheme)])
+                               (when verbose (pretty-print scm))
+                               (display (eval scm))
+                               (newline)
+                               (go)))])
+                (go))))

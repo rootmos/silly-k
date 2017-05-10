@@ -2,8 +2,9 @@
   (silly-k)
   (export compile-silly-k
           compile-silly-k-and-run
-          compiler
-          debug-passes
+          compile-to-malfunction
+          compile-to-scheme
+          passes
           parse-silly-k                  id
           ast-to-Lsrc                    unparse-Lsrc
           differentiate-scalars          unparse-L1
@@ -17,7 +18,8 @@
           expand-idioms
           type-check
           untype                         unparse-L9
-          output-malfunction)
+          output-malfunction
+          output-scheme)
   (import (nanopass)
           (chezscheme)
           (silly-k tools)
@@ -51,10 +53,14 @@
         (skip-spaces)
         (let ([location (make-source-location
                           (port-name (current-input-port))
-                          (port-position (current-input-port))
+                          (if (port-has-port-position? (current-input-port))
+                            (port-position (current-input-port))
+                            #f)
                           #f
                           -1
-                          (port-length (current-input-port)))]
+                          (if (port-has-port-length? (current-input-port))
+                            (port-length (current-input-port))
+                            -1))]
               [c (read-char)])
           (cond
             [(eof-object? c) '*eoi*]
@@ -742,8 +748,38 @@
       )
     (Program : Program (p) -> Program ()
       [(program ,e ,t (,g* ...))
-       `(program ,(Expr e) (,[map Global g*] ...))])
-  )
+       `(program ,(Expr e) (,[map Global g*] ...))]))
+
+
+  (define-pass output-scheme : L9 (e) -> * ()
+    (Expr : Expr (e) -> * ()
+      [,s s]
+      [(scalar ,n) n]
+      [(vector ,nv) `(quote ,nv)]
+      [(primfun ,pf)
+       (cond
+         [(equal? pf 'minus) '(lambda (y) (lambda (x) (- x y)))]
+         [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
+         [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
+         [(equal? pf 'reduce)
+          ; TODO: properly figure out the monoid zero (how to handle minus?)
+          '(lambda (f xs) (fold-right f 0 xs))]
+         [(equal? pf 'zip)
+          '(lambda (f xs ys)
+             (letrec ([go (lambda (xs ys)
+                            (cond
+                              [(and (null? xs) (null? ys)) '()]
+                              [else (cons (f (car xs) (car ys)) (go xs ys))]))])))]
+         [(equal? pf 'input-vector) '(read)]
+         [(equal? pf 'input-scalar) '(read)]
+         [(equal? pf 'output-scalar) 'display]
+         [(equal? pf 'output-vector) 'display]
+         [else (error 'output-scheme "unsupported primitive function" pf)])]
+      [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
+      [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])])
+    (Program : Program (p) -> * ()
+      [(program ,e (,s* ...)) (Expr e)]))
+
 
   (define-pass output-malfunction : L9 (e) -> * ()
     (definitions
@@ -863,45 +899,32 @@
       (expand-idioms                 . unparse-L8)
       (type-check                    . unparse-L8)
       (untype                        . unparse-L9)
-      (output-malfunction            . id)
+      (output-scheme                 . id)
       ))
 
+  (define (compiler-frontend)
+    (untype
+      (expand-idioms
+        (unify-and-substitute-types
+          (derive-type-constraints
+            (type-lambda-abstractions
+              (introduce-fresh-typevars
+                (type-scalars-and-vectors
+                  (introduce-lambda-abstractions
+                    (translate-to-primfuns
+                      (differentiate-scalars
+                        (ast-to-Lsrc
+                          (parse-silly-k)))))))))))))
 
-  (define (debug-passes s)
-    (display "> ")
-    (display s)
-    (newline)
+  (define (compile-to-malfunction)
+    (output-malfunction (compiler-frontend)))
 
-    (fold-left (lambda (acc p)
-                 (let* ([pass (car p)]
-                        [unparser (cdr p)]
-                        [expr (cond
-                                [(null? acc) (list pass)]
-                                [else (list pass acc)])])
-                   (pretty-print ((eval unparser) (with-input-from-string s (lambda () (eval expr)))))
-                   expr))
-               '()
-               passes)
-    (newline))
-
-  (define (compiler)
-    (output-malfunction
-      (untype
-        (expand-idioms
-          (unify-and-substitute-types
-            (derive-type-constraints
-              (type-lambda-abstractions
-                (introduce-fresh-typevars
-                  (type-scalars-and-vectors
-                    (introduce-lambda-abstractions
-                      (translate-to-primfuns
-                        (differentiate-scalars
-                          (ast-to-Lsrc
-                            (parse-silly-k))))))))))))))
+  (define (compile-to-scheme)
+    (output-scheme (compiler-frontend)))
 
   (define compile-silly-k
     (lambda (o)
-      (compile-malfunction o (compiler))))
+      (compile-malfunction o (compile-to-malfunction))))
 
   (define (compile-silly-k-and-run)
     (compile "a.out")

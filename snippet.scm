@@ -1,5 +1,22 @@
 (import (silly-k))
 
+(define (debug-passes s)
+  (display "> ")
+  (display s)
+  (newline)
+
+  (fold-left (lambda (acc p)
+               (let* ([pass (car p)]
+                      [unparser (cdr p)]
+                      [expr (cond
+                              [(null? acc) (list pass)]
+                              [else (list pass acc)])])
+                 (pretty-print ((eval unparser) (with-input-from-string s (lambda () (eval expr)))))
+                 expr))
+             '()
+             passes)
+  (newline))
+
 ;(debug-passes "foo")
 ;(debug-passes "foo bar")
 (debug-passes "1")
