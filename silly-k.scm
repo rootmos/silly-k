@@ -773,10 +773,19 @@
                                   [(and (null? xs) (null? ys)) '()]
                                   [else (cons ((f (car ys)) (car xs)) (go (cdr xs) (cdr ys)))]))])
                    (go xs ys)))))]
-         [(equal? pf 'input-vector) '(read)]
-         [(equal? pf 'input-scalar) '(read)]
+         [(equal? pf 'input-scalar)
+          '(string->number (get-line (current-input-port)))]
+         [(equal? pf 'input-vector)
+          '(with-input-from-string (format "(~a)" (get-line (current-input-port))) read)]
          [(equal? pf 'output-scalar) 'display]
-         [(equal? pf 'output-vector) 'display]
+         [(equal? pf 'output-vector)
+          '(letrec ([print-vector (lambda (xs)
+                                    (display (car xs))
+                                    (let ([tail (cdr xs)])
+                                      (cond
+                                        [(null? tail) (void)]
+                                        [else (display " ") (print-vector tail)])))])
+             print-vector)]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])])

@@ -34,23 +34,37 @@
 (define utf-8-transcoder
   (make-transcoder (utf-8-codec)))
 
+(define skip-malfunction-tests (getenv "QUICK"))
+
 (define (run-test tc)
   (let ([target (format "~a/~a" build-dir (test-case-name tc))])
-    (printf "Running ~a... " (test-case-name tc))
-    (with-input-from-string (test-case-code tc)
-      (lambda ()
-        (set-port-name! (current-input-port) target)
-        (compile-silly-k target)))
-    (let-values ([(to-stdin from-stdout from-stderr process-id)
-                  (open-process-ports (format "exec ~a" target) 'line utf-8-transcoder)])
-      (when (test-case-input tc)
-        (put-string to-stdin (test-case-input tc))
-        (flush-output-port to-stdin)
-        (close-output-port to-stdin))
-      (let ([output (get-line from-stdout)])
+    (unless skip-malfunction-tests
+      (printf "Running ~a (malfunction)... " (test-case-name tc))
+      (with-input-from-string (test-case-code tc)
+        (lambda ()
+          (set-port-name! (current-input-port) target)
+          (compile-silly-k target)))
+      (let-values ([(to-stdin from-stdout from-stderr process-id)
+                    (open-process-ports (format "exec ~a" target) 'line utf-8-transcoder)])
+        (when (test-case-input tc)
+          (put-string to-stdin (test-case-input tc))
+          (flush-output-port to-stdin)
+          (close-output-port to-stdin))
+        (let ([output (get-line from-stdout)])
+          (cond
+            [(equal? output (test-case-expected tc)) (printf "ok~%")]
+            [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f]))))
+
+    (printf "Running ~a (scheme)... " (test-case-name tc))
+    (let ([scm (with-input-from-string (test-case-code tc) compile-to-scheme)])
+      (let* ([go (lambda () (with-output-to-string (lambda () (eval scm))))]
+             [output (cond
+                       [(test-case-input tc) => (lambda (input) (with-input-from-string input go))]
+                       [else (go)])])
         (cond
           [(equal? output (test-case-expected tc)) (printf "ok~%")]
           [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f])))
+
     ))
 
 (for-all run-test test-cases)
