@@ -18,7 +18,7 @@
     (make-test-case "negation01" "](-7)"          #f         "-7")
     (make-test-case "negation02" "](-(-2))"       #f         "2")
     (make-test-case "reduce01"   "](+/1 2 3)"     #f         "6")
-    ;(make-test-case "reduce02"   "](-/1 2 3)"     #f         "-2")
+    (make-test-case "reduce02"   "](-/1 2 3)"     #f         "2")
     (make-test-case "input01"    "]1:"            "7"        "7")
     (make-test-case "input02"    "]0:"            "1 2 3"    "1 2 3")
     (make-test-case "input03"    "](1:)+1"        "7"        "8")
@@ -38,33 +38,34 @@
 
 (define (run-test tc)
   (let ([target (format "~a/~a" build-dir (test-case-name tc))])
-    (unless skip-malfunction-tests
-      (printf "Running ~a (malfunction)... " (test-case-name tc))
-      (with-input-from-string (test-case-code tc)
-        (lambda ()
-          (set-port-name! (current-input-port) target)
-          (compile-silly-k target)))
-      (let-values ([(to-stdin from-stdout from-stderr process-id)
-                    (open-process-ports (format "exec ~a" target) 'line utf-8-transcoder)])
-        (when (test-case-input tc)
-          (put-string to-stdin (test-case-input tc))
-          (flush-output-port to-stdin)
-          (close-output-port to-stdin))
-        (let ([output (get-line from-stdout)])
-          (cond
-            [(equal? output (test-case-expected tc)) (printf "ok~%")]
-            [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f]))))
+    (and
+      (unless skip-malfunction-tests
+        (printf "Running ~a (malfunction)... " (test-case-name tc))
+        (with-input-from-string (test-case-code tc)
+          (lambda ()
+            (set-port-name! (current-input-port) target)
+            (compile-silly-k target)))
+        (let-values ([(to-stdin from-stdout from-stderr process-id)
+                      (open-process-ports (format "exec ~a" target) 'line utf-8-transcoder)])
+          (when (test-case-input tc)
+            (put-string to-stdin (test-case-input tc))
+            (flush-output-port to-stdin)
+            (close-output-port to-stdin))
+          (let ([output (get-line from-stdout)])
+            (cond
+              [(equal? output (test-case-expected tc)) (printf "ok~%")]
+              [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f]))))
 
-    (printf "Running ~a (scheme)... " (test-case-name tc))
-    (let ([scm (with-input-from-string (test-case-code tc) compile-to-scheme)])
-      (let* ([go (lambda () (with-output-to-string (lambda () (eval scm))))]
-             [output (cond
-                       [(test-case-input tc) => (lambda (input) (with-input-from-string input go))]
-                       [else (go)])])
-        (cond
-          [(equal? output (test-case-expected tc)) (printf "ok~%")]
-          [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f])))
-
+      (begin
+        (printf "Running ~a (scheme)... " (test-case-name tc))
+        (let ([scm (with-input-from-string (test-case-code tc) compile-to-scheme)])
+          (let* ([go (lambda () (with-output-to-string (lambda () (eval scm))))]
+                 [output (cond
+                           [(test-case-input tc) => (lambda (input) (with-input-from-string input go))]
+                           [else (go)])])
+            (cond
+              [(equal? output (test-case-expected tc)) (printf "ok~%")]
+              [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f])))))
     ))
 
 (for-all run-test test-cases)

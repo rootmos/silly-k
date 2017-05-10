@@ -762,8 +762,14 @@
          [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
          [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
          [(equal? pf 'reduce)
-          ; TODO: properly figure out the monoid zero (how to handle minus?)
-          '(lambda (f) (lambda (xs) (fold-right (lambda (acc x) ((f x) acc)) 0 xs)))]
+          '(lambda (f)
+            (lambda (xs)
+              (letrec ([go (lambda (acc xs)
+                             (cond
+                               [(null? xs) acc]
+                               [else (go ((f acc) (car xs)) (cdr xs))]))])
+                (let ([rs (reverse xs)])
+                  (go (car rs) (cdr rs))))))]
          [(equal? pf 'zip)
           '(lambda (f)
              (lambda (ys)
@@ -833,6 +839,15 @@
       (define malfunction-foldr-lambda
         `(lambda ($f $b $v)
            (apply (global $Array $fold_right) $f $v $b)))
+      (define malfunction-reduce-lambda
+        `(lambda ($f $v)
+           (let
+             ($n (length $v))
+             (rec ($go (lambda ($acc $i)
+                         (switch $i
+                           (-1 $acc)
+                           (_ (apply $go (apply $f $acc (load $v $i)) (- $i 1)))))))
+             (apply $go (load $v (- $n 1)) (- $n 2)))))
       (define (make-malfunction-vector l)
         (letrec ([go (lambda (i k)
                        (if (null? k)
@@ -863,8 +878,7 @@
          [(equal? pf 'map)
            `(lambda ($f $xs) (apply $map $f $xs))]
          [(equal? pf 'reduce)
-          ; TODO: properly figure out the monoid zero (how to handle minus?)
-          `(lambda ($f $xs) (apply $foldr $f 0 $xs))]
+          `(lambda ($f $xs) (apply $reduce $f $xs))]
          [(equal? pf 'zip)
           `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
          [(equal? pf 'input-vector)
@@ -885,6 +899,7 @@
           ($map ,malfunction-map-lambda)
           ($zip ,malfunction-zip-lambda)
           ($foldr ,malfunction-foldr-lambda)
+          ($reduce ,malfunction-reduce-lambda)
           ($read_scalar ,malfunction-read-scalar-lambda)
           ($read_vector ,malfunction-read-vector-lambda)
           ($write_scalar ,mlf-write-scalar-lambda)
