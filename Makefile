@@ -4,11 +4,11 @@ scheme:
 
 .PHONY: test
 test:
-	./run-tests.sh
+	scheme --libdirs .:nanopass-framework-scheme:lalr-scm --compile-imported-libraries --optimize-level 3 --program tests.scm
 
 .PHONY: clean
 clean:
-	rm -vf silly_* tests/*.cmx tests/*.cmi tests/*.o tests/*.bin tests/*.mlf
+	rm -vf _build
 
 .PHONY: snippet
 snippet:

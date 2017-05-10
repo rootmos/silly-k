@@ -942,8 +942,8 @@
           (lambda ()
             (write mlf)
             (flush-output-port)
-            (assert (= 0 (system (format "malfunction cmx ~s" fn))))
-            (assert (= 0 (system (format "ocamlfind ocamlopt -o ~s str.cmxa ~s.cmx" out pn)))))
+            (assert (= 0 (system (format "exec malfunction cmx ~s" fn))))
+            (assert (= 0 (system (format "exec ocamlopt.opt -o ~s str.cmxa ~s.cmx" out pn)))))
           '(replace)))))
 
   )
