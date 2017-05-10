@@ -763,13 +763,16 @@
          [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
          [(equal? pf 'reduce)
           ; TODO: properly figure out the monoid zero (how to handle minus?)
-          '(lambda (f xs) (fold-right f 0 xs))]
+          '(lambda (f) (lambda (xs) (fold-right (lambda (acc x) ((f x) acc)) 0 xs)))]
          [(equal? pf 'zip)
-          '(lambda (f xs ys)
-             (letrec ([go (lambda (xs ys)
-                            (cond
-                              [(and (null? xs) (null? ys)) '()]
-                              [else (cons (f (car xs) (car ys)) (go xs ys))]))])))]
+          '(lambda (f)
+             (lambda (ys)
+               (lambda (xs)
+                 (letrec ([go (lambda (xs ys)
+                                (cond
+                                  [(and (null? xs) (null? ys)) '()]
+                                  [else (cons ((f (car ys)) (car xs)) (go (cdr xs) (cdr ys)))]))])
+                   (go xs ys)))))]
          [(equal? pf 'input-vector) '(read)]
          [(equal? pf 'input-scalar) '(read)]
          [(equal? pf 'output-scalar) 'display]
