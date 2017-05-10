@@ -19,6 +19,7 @@
     (make-test-case "negation02" "](-(-2))"       #f         "2")
     (make-test-case "reduce01"   "](+/1 2 3)"     #f         "6")
     (make-test-case "reduce02"   "](-/1 2 3)"     #f         "2")
+    (make-test-case "reduce03"   "]({w-a}/1 2 3)" #f         "0")
     (make-test-case "input01"    "]1:"            "7"        "7")
     (make-test-case "input02"    "]0:"            "1 2 3"    "1 2 3")
     (make-test-case "input03"    "](1:)+1"        "7"        "8")
