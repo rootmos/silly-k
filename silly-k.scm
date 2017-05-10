@@ -620,7 +620,7 @@
                      (lambda (vector int) (vector int)))
                    (xs (vector int))
                    (vector int))
-                 (vector int))
+                 (lambda int (vector int)))
                (lambda (vector int) (lambda int (vector int))))]
            ; 1 2+3 4 or 1 2-3 4
            [(and (or (equal? pf 'plus) (equal? pf 'minus))
@@ -647,14 +647,21 @@
       [(vector ,t) `(vector ,t)]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,int int])
-    (Expr : Expr (e) -> Expr (t)
-      [(,s ,t) (values `(,s ,t) (unwrap-Type t))]
+    (Expr : Expr (e ctx) -> Expr (t)
+      [(,s ,t)
+       (let ([t^ (unwrap-Type t)])
+         (cond
+           [(assq s ctx) => (lambda (st)
+                              (cond
+                                [(equal? t^ (cdr st)) (values `(,s ,t) t^)]
+                                [else (error 'type-check "type error for symbol" (cons s t^) ctx)]))]
+           [else (error 'type-check "unbound symbol" s ctx)]))]
       [(primfun ,pf ,t) (values `(primfun ,pf ,t) (unwrap-Type t))]
       [(scalar ,n ,t) (values `(scalar ,n ,t) (unwrap-Type t))]
       [(vector ,nv ,t) (values `(vector ,nv ,t) (unwrap-Type t))]
       [(apply ,e0 ,e1 ,t)
-       (let-values ([(e0^ t0^) (Expr e0)]
-                    [(e1^ t1^) (Expr e1)]
+       (let-values ([(e0^ t0^) (Expr e0 ctx)]
+                    [(e1^ t1^) (Expr e1 ctx)]
                     [(ut) (unwrap-Type t)])
          (cond
            [(and (lambda-type? t0^)
@@ -664,15 +671,20 @@
            [else (error 'type-check "type error in application"
                         (list (unparse-L8 e0^) t0^) (list (unparse-L8 e1^) t1^) ut)]))]
       [(lambda (,s ,t0) ,e ,t1)
-       (let-values ([(e^ t1^) (Expr e)]
-                    [(ut0) (unwrap-Type t0)]
-                    [(ut1) (unwrap-Type t1)])
-         ; TODO: verify type of symbol (s: t0) in e
-         (values `(lambda (,s ,t0) ,e^ ,t1) ut1))]
+       (let*-values ([(ut0) (unwrap-Type t0)]
+                     [(e^ t^) (Expr e (cons (cons s ut0) ctx))]
+                     [(ut1) (unwrap-Type t1)])
+         (cond
+           [(and (lambda-type? ut1)
+                (equal? (cadr ut1) ut0)
+                (equal? (caddr ut1) t^))
+            (values `(lambda (,s ,t0) ,e^ ,t1) ut1)]
+           [else (error 'type-check "type error in lambda"
+                        (list s ut0) (list (unparse-L8 e^) t^) ut1)]))]
       [else (error 'type-check "yo")])
     (Program : Program (p) -> Program ()
       [(program ,e ,t (,g* ...))
-       (let-values ([(e^ t^) (Expr e)])
+       (let-values ([(e^ t^) (Expr e '())]) ; TOOD: populate the ctx using the globals (or refactor out the globals)
          (let ([ut (unwrap-Type t)])
            (cond
              [(equal? ut t^) `(program ,e^ ,t (,g* ...))]
