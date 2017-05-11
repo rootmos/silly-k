@@ -80,6 +80,7 @@
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
             [(char=? c #\=)       (make-lexical-token 'EQUAL location #f)]
+            [(char=? c #\_)       (make-lexical-token 'UNDERSCORE location #f)]
             [(char-numeric? c)    (make-lexical-token 'NUM location (read-number `(,c)))]
             [(char-alphabetic? c) (make-lexical-token 'ATOM location (read-atom `(,c)))]
             [else (error 'lex "Unrecognized character" c)])))))
@@ -90,7 +91,8 @@
               (lalr-parser
                 (PLUS (left: NUM) MINUS LPAREN RPAREN
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
-                 ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON)
+                 ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
+                 UNDERSCORE)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (verb AT expr) : `(apply ,$1 #f ,$3)
@@ -113,7 +115,8 @@
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
                       (LBRACE expr RBRACE) : `(dfn ,$2)
-                      (verb adverb) : `(adverb ,$2 ,$1))
+                      (verb adverb) : `(adverb ,$2 ,$1)
+                      (UNDERSCORE ATOM) : (string->symbol (string-append "_" (symbol->string $2))))
                 (adverb (SLASH) : 'over
                         (QUOTE) : 'each)
                 (num (num NUM) : (append $1 (list $2))
@@ -257,7 +260,10 @@
       (- (dfn e))
       (- (apply e))
       (- (apply e0 e1 e2))
-      (+ (lambda s e))))
+      (+ (lambda s e))
+      (+ (lambda-rec s e))))
+
+  (define self '_f)
 
    (define-pass introduce-lambda-abstractions : L2 (e) -> L3 ()
       (CondArm : CondArm (ca) -> CondArm (fv)
@@ -291,14 +297,24 @@
         [(dfn ,e)
          (let-values ([(e^ fv) (Expr e)])
            (let ([has-a (memv 'a fv)]
-                 [has-w (memv 'w fv)])
+                 [has-w (memv 'w fv)]
+                 [is-recursive (memv self fv)])
              (cond
+               [(and has-w (not has-a) is-recursive)
+                (values `(lambda-rec w ,e^) (remove 'w fv))]
                [(and has-w (not has-a))
                 (values `(lambda w ,e^) (remove 'w fv))]
+
                [(and has-w has-a)
                 (values `(lambda w (lambda a ,e^)) (remove 'a (remove 'w fv)))]
+               [(and has-w has-a is-recursive)
+                (values `(lambda-rec w (lambda-rec a ,e^)) (remove 'a (remove 'w fv)))]
+
                [(and (not has-w) has-a)
                 (values `(lambda a ,e^) (remove 'a fv))]
+               [(and (not has-w) has-a is-recursive)
+                (values `(lambda-rec a ,e^) (remove 'a fv))]
+
                [(and (not has-w) (not has-a))
                 (error 'introduce-lambda-abstractions "nullary dfns not supported" (unparse-L2 e))]
              )))]
@@ -393,6 +409,9 @@
       [(lambda ,s ,e)
        (let-values ([(e^ env^) (Expr e env)])
          (values `(lambda ,s ,e^) (abstract-symbol s env^)))]
+      [(lambda-rec ,s ,e)
+       (let-values ([(e^ env^) (Expr e env)])
+         (values `(lambda-rec ,s ,e^) (abstract-symbol self (abstract-symbol s env^))))]
       [(cond (,ca* ...))
        (let* ([cas-env (fold-left
                          (lambda (acc ca)
@@ -416,7 +435,9 @@
       (+ (lambda t0 t1)))
     (Expr (e)
       (- (lambda s e))
-      (+ (lambda (s t0) e t1)))
+      (+ (lambda (s t0) e t1))
+      (- (lambda-rec s e))
+      (+ (lambda-rec (s t0) e t1 t2)))
     (Global (g)
       (+ (s t)))
     (Program (p)
@@ -467,6 +488,12 @@
                      [(t0 env^^) (abstract-symbol s env^)])
          (let ([t^ (mk-lambda-type t0 t1)])
            (values `(lambda (,s ,t0) ,e^ ,t^) t^ env^^)))]
+      [(lambda-rec ,s ,e)
+       (let*-values ([(e^ t1 env^) (Expr e env)]
+                     [(t0 env^^) (abstract-symbol s env^)]
+                     [(selft env^^^) (abstract-symbol self env^^)])
+         (let ([t^ (mk-lambda-type t0 t1)])
+           (values `(lambda-rec (,s ,t0) ,e^ ,t^ ,selft) t^ env^^^)))]
       [(cond (,ca* ...) ,t)
        (let* ([cas-env (fold-left
                          (lambda (acc ca)
@@ -568,6 +595,10 @@
        (let*-values ([(e^ et^ cs^) (Expr e cs)])
          (let ([t1^ (Type t1)])
            (values `(lambda (,s ,(Type t0)) ,e^ ,t1^) t1^ cs^)))]
+      [(lambda-rec (,s ,t0) ,e ,t1 ,t2)
+       (let*-values ([(e^ et^ cs^) (Expr e cs)])
+         (let ([t1^ (Type t1)] [t2^ (Type t2)])
+           (values `(lambda-rec (,s ,(Type t0)) ,e^ ,t1^ ,t2^) t1^ (cons (mk-constraint t1^ t2^) cs^))))]
       [(cond (,ca* ...) ,t)
        (let* ([t^ (Type t)]
               [cas-cs (fold-left
@@ -678,11 +709,8 @@
       (+ (program e t (g* ...)))))
 
    (define-pass unify-and-substitute-types : L7 (ir) -> L8 ()
-     (Global : Global (g sub) -> Global ()
-       [(,s ,t) `(,s ,[Type t sub])])
-     (CondArm : CondArm (ca sub) -> CondArm ()
-       [(,e0 ,e1) `(,(Expr e0 sub) ,(Expr e1 sub))]
-       [(else ,e) `(else ,(Expr e sub))])
+     (Global : Global (g sub) -> Global ())
+     (CondArm : CondArm (ca sub) -> CondArm ())
      (Type : Type (t sub) -> Type ()
        [(lambda ,t0 ,t1) `(lambda ,(Type t0 sub) ,(Type t1 sub))]
        [(typevar ,tv) (mk-Type (sub (list 'typevar tv)))]
@@ -692,15 +720,7 @@
          [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
          [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
          [else t]))
-     (Expr : Expr (e sub) -> Expr ()
-       [(primfun ,pf ,t) `(primfun ,pf ,(Type t sub))]
-       [(vector ,nv ,t) `(vector ,nv ,(Type t sub))]
-       [(scalar ,n ,t) `(scalar ,n ,(Type t sub))]
-       [(apply ,e0 ,e1 ,t) `(apply ,(Expr e0 sub) ,(Expr e1 sub) ,(Type t sub))]
-       [(lambda (,s ,t0) ,e ,t1) `(lambda (,s ,(Type t0 sub)) ,(Expr e sub) ,(Type t1 sub))]
-       [(cond (,ca* ...) ,t)
-        `(cond (,[map (lambda (ca) (CondArm ca sub)) ca*] ...) ,(Type t sub))]
-       )
+     (Expr : Expr (e sub) -> Expr ())
      (Program : Program (p) -> Program ()
        [(program ,e ,t (,g* ...) (,c* ...))
         (let ([cs (map unparse-L7 c*)])
@@ -836,6 +856,19 @@
             (values expr ut1)]
            [else (error 'type-check "type error in lambda"
                         (list s ut0) (list (unparse-L8 e^) t^) ut1)]))]
+      [(lambda-rec (,s ,t0) ,e ,t1 ,t2)
+       (let*-values ([(ut0) (unwrap-Type t0)]
+                     [(ut1) (unwrap-Type t1)]
+                     [(ut2) (unwrap-Type t2)]
+                     [(e^ t^) (Expr e (append (list (cons self ut1) (cons s ut0) ctx)))])
+         (cond
+           [(and (lambda-type? ut1)
+                (equal? (cadr ut1) ut0)
+                (equal? (caddr ut1) t^)
+                (equal? ut1 ut2))
+            (values expr ut1)]
+           [else (error 'type-check "type error in lambda-rec"
+                        (list s ut0) (list (unparse-L8 e^) t^) ut1)]))]
       [(cond (,ca* ...) ,t)
        (let ([t^ (unwrap-Type t)])
          (for-all (lambda (ca) (CondArm ca t^ ctx)) ca*)
@@ -888,6 +921,8 @@
       (+ (apply e0 e1))
       (- (lambda (s t0) e t1))
       (+ (lambda (s) e))
+      (- (lambda-rec (s t0) e t1 t2))
+      (+ (lambda-rec (s) e))
       (- (cond (ca* ...) t))
       (+ (cond (ca* ...))))
     (Global (g)
@@ -907,6 +942,7 @@
       [(primfun ,pf ,t) `(primfun ,pf)]
       [(apply ,e0 ,e1 ,t) `(apply ,[Expr e0] ,[Expr e1])]
       [(lambda (,s ,t0) ,e ,t1) `(lambda (,s) ,[Expr e])]
+      [(lambda-rec (,s ,t0) ,e ,t1 ,t2) `(lambda-rec (,s) ,[Expr e])]
       [(cond (,ca* ...) ,t) `(cond (,[map CondArm ca*] ...))])
     (Program : Program (p) -> Program ()
       [(program ,e ,t (,g* ...))
@@ -964,6 +1000,7 @@
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
+      [(lambda-rec (,s) ,e) `(letrec ((,self (lambda (,s) ,[Expr e]))) ,self)]
       [(cond (,ca* ...)) `(cond . ,[map CondArm ca*])])
     (Program : Program (p) -> * ()
       [(program ,e (,s* ...)) (Expr e)]))
@@ -972,6 +1009,7 @@
   (define-pass output-malfunction : L9 (e) -> * ()
     (definitions
       (define (mlf-symbol s) (string->symbol (format "$~s" s)))
+      (define mlf-self (mlf-symbol self))
       (define mlf-write-scalar-lambda
         '(lambda ($x) (seq (apply (global $Pervasives $print_int) $x) $x)))
       (define mlf-unit '(block (tag 0)))
@@ -1065,6 +1103,7 @@
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
+      [(lambda-rec (,s) ,e) `(let (rec (,mlf-self (lambda (,[mlf-symbol s]) ,[Expr e]))) ,mlf-self)]
       [(cond (,ca* ...))
        (letrec ([go (lambda (cas)
                       (if (null? cas)
@@ -1112,6 +1151,7 @@
       (expand-idioms                 . unparse-L8)
       (type-check                    . unparse-L8)
       (untype                        . unparse-L9)
+      ;(output-scheme                 . id)
       (output-malfunction            . id)
       ))
 
