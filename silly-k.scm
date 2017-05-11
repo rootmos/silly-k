@@ -67,15 +67,18 @@
             [(char=? c #\+)       (make-lexical-token 'PLUS location #f)]
             [(char=? c #\newline) (make-lexical-token 'NEWLINE location #f)]
             [(char=? c #\:)       (make-lexical-token 'COLON location #f)]
+            [(char=? c #\;)       (make-lexical-token 'SEMICOLON location #f)]
             [(char=? c #\-)       (make-lexical-token 'MINUS location #f)]
             [(char=? c #\()       (make-lexical-token 'LPAREN location #f)]
             [(char=? c #\))       (make-lexical-token 'RPAREN location #f)]
             [(char=? c #\{)       (make-lexical-token 'LBRACE location #f)]
             [(char=? c #\})       (make-lexical-token 'RBRACE location #f)]
             [(char=? c #\])       (make-lexical-token 'RBRACKET location #f)]
+            [(char=? c #\[)       (make-lexical-token 'LBRACKET location #f)]
             [(char=? c #\@)       (make-lexical-token 'AT location #f)]
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
+            [(char=? c #\=)       (make-lexical-token 'EQUAL location #f)]
             [(char-numeric? c)    (make-lexical-token 'NUM location (read-number `(,c)))]
             [(char-alphabetic? c) (make-lexical-token 'ATOM location (read-atom `(,c)))]
             [else (error 'lex "Unrecognized character" c)])))))
@@ -84,21 +87,30 @@
     (lambda ()
       (let ([parser
               (lalr-parser
-                (expect: 0)
-                (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE LBRACE RBRACE ATOM RBRACKET AT)
+                (PLUS (left: NUM) MINUS LPAREN RPAREN
+                 SLASH QUOTE COLON NEWLINE LBRACE RBRACE
+                 ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
-                (expr (expr AT expr) : `(apply ,$1 #f ,$3)
+                (expr (verb AT expr) : `(apply ,$1 #f ,$3)
                       (expr verb expr) : `(apply ,$2 ,$1 ,$3)
-                      (expr expr) : `(apply ,$1 #f ,$2)
+                      (verb expr) : `(apply ,$1 #f ,$2)
                       (LPAREN expr RPAREN) : $2
-                      (verb) : $1
+                      (LPAREN cond RPAREN) : `(cond ,$2)
                       (num) : $1
-                      (ATOM) : $1)
+                      (verb) : $1
+                      (ATOM) : $1
+                      )
+                (cond (expr SEMICOLON expr SEMICOLON cond) :
+                      `((,$1 ,$3) . ,$5)
+                      (expr SEMICOLON expr SEMICOLON expr) :
+                      `((,$1 . ,$3) (else ,$5)))
                 (verb (PLUS) : 'plus
                       (MINUS) : 'minus
+                      (EQUAL) : 'equal
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
+                      (LBRACE cond RBRACE) : `(dfn (cond ,$2))
                       (LBRACE expr RBRACE) : `(dfn ,$2)
                       (verb adverb) : `(adverb ,$2 ,$1))
                 (adverb (SLASH) : 'over
@@ -915,20 +927,20 @@
 
   (define passes
     '((parse-silly-k                 . id)
-      (ast-to-Lsrc                   . unparse-Lsrc)
-      (differentiate-scalars         . unparse-L1)
-      (translate-to-primfuns         . unparse-L2)
-      (introduce-lambda-abstractions . unparse-L3)
-      (type-scalars-and-vectors      . unparse-L4)
-      (introduce-fresh-typevars      . unparse-L5)
-      (type-lambda-abstractions      . unparse-L6)
-      (derive-type-constraints       . unparse-L7)
-      (unify-and-substitute-types    . unparse-L8)
-      (type-check                    . unparse-L8)
-      (expand-idioms                 . unparse-L8)
-      (type-check                    . unparse-L8)
-      (untype                        . unparse-L9)
-      (output-scheme                 . id)
+      ;(ast-to-Lsrc                   . unparse-Lsrc)
+      ;(differentiate-scalars         . unparse-L1)
+      ;(translate-to-primfuns         . unparse-L2)
+      ;(introduce-lambda-abstractions . unparse-L3)
+      ;(type-scalars-and-vectors      . unparse-L4)
+      ;(introduce-fresh-typevars      . unparse-L5)
+      ;(type-lambda-abstractions      . unparse-L6)
+      ;(derive-type-constraints       . unparse-L7)
+      ;(unify-and-substitute-types    . unparse-L8)
+      ;(type-check                    . unparse-L8)
+      ;(expand-idioms                 . unparse-L8)
+      ;(type-check                    . unparse-L8)
+      ;(untype                        . unparse-L9)
+      ;(output-scheme                 . id)
       ))
 
   (define (compiler-frontend)
