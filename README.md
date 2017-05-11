@@ -15,7 +15,7 @@ using the following structure:
   [Scheme](https://en.wikipedia.org/wiki/Scheme_(programming_language)) (which is used mainly for
   quick tests and the REPL).
 
-## examples
+## Examples
 Here's some examples of the syntax (taken directly from the [tests](https://github.com/rootmos/silly-k/blob/master/tests.scm)
 
 Code | Stdin | Stdout
