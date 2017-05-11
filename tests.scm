@@ -38,6 +38,19 @@
     (make-test-case "fibonacci"  "]{w=1;1;w=2;1;(_f(w-2))+_f(w-1)}1:" "7"        "13")
     ))
 
+(with-output-to-file
+  "tests.markdown"
+  (lambda ()
+    (printf "Code | Stdout | Stdin~%")
+    (printf "---- | ------ | -----~%")
+    (for-all
+      (lambda (tc)
+        (if (test-case-input tc)
+          (printf "`~a` | `~a` | `~a`~%" (test-case-code tc) (test-case-expected tc) (test-case-input tc))
+          (printf "`~a` | `~a` |~%" (test-case-code tc) (test-case-expected tc)))
+        )
+      test-cases)))
+
 (define build-dir "_build")
 
 (unless (file-directory? build-dir)
