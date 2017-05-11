@@ -4,52 +4,63 @@
 
 (define test-cases
   (list
-    (make-test-case "number01"   "]7"                                 #f         "7")
-    (make-test-case "number02"   "]1 2 3"                             #f         "1 2 3")
-    (make-test-case "addition01" "]1+2"                               #f         "3")
-    (make-test-case "addition02" "]1+2 3"                             #f         "3 4")
-    (make-test-case "addition03" "]1 2+3 4"                           #f         "4 6")
-    (make-test-case "addition04" "]1 2+3"                             #f         "4 5")
-    (make-test-case "minus01"    "]2-3"                               #f         "-1")
-    (make-test-case "minus02"    "]1-(-2)"                            #f         "3")
-    (make-test-case "minus03"    "]1 2-3 4"                           #f         "-2 -2")
-    (make-test-case "over01"     "]@{w+1}'1 2 3"                      #f         "2 3 4")
-    (make-test-case "over02"     "]@{1-w}'3 4 5"                      #f         "-2 -3 -4")
-    (make-test-case "negation01" "]@-7"                               #f         "-7")
-    (make-test-case "negation02" "]@-(-2)"                            #f         "2")
-    (make-test-case "reduce01"   "]@+/1 2 3"                          #f         "6")
-    (make-test-case "reduce02"   "]@-/1 2 3"                          #f         "2")
-    (make-test-case "reduce03"   "]@{w-a}/1 2 3"                      #f         "0")
-    (make-test-case "input01"    "]1:"                                "7"        "7")
-    (make-test-case "input02"    "]0:"                                "1 2 3"    "1 2 3")
-    (make-test-case "input03"    "](1:)+1"                            "7"        "8")
-    (make-test-case "input04"    "]1+0:"                              "1 2 3"    "2 3 4")
-    (make-test-case "input05"    "](0:)+1:"                           "2\n1 2 3" "3 4 5")
-    (make-test-case "cond01"     "](1=1;2;3)"                         #f         "2")
-    (make-test-case "cond02"     "](1=2;1 2;3 4)"                     #f         "3 4")
-    (make-test-case "cond03"     "]7{w=1;w;a}1"                       #f         "1")
-    (make-test-case "cond04"     "]7{w=1;w;a}8"                       #f         "7")
-    (make-test-case "cond05"     "]{w=1;w+1;w=2;w+2;w+3}1"            #f         "2")
-    (make-test-case "cond06"     "]{w=1;w+1;w=2;w+2;w+3}2"            #f         "4")
-    (make-test-case "cond07"     "]{w=1;w+1;w=2;w+2;w+3}3"            #f         "6")
-    (make-test-case "cond08"     "]{w=1;w+1;w=2;w+2;w+3}4"            #f         "7")
-    (make-test-case "cond09"     "](1=1;2;3)"                         #f         "2")
-    (make-test-case "self01"     "]{w=0;0;w+_f(w-1)}6"                #f         "21")
-    (make-test-case "fibonacci"  "]{w=1;1;w=2;1;(_f(w-2))+_f(w-1)}1:" "7"        "13")
+    (make-test-case "number01"   "]7"                                 #f                 "7")
+    (make-test-case "number02"   "]1 2 3"                             #f                 "1 2 3")
+    (make-test-case "addition01" "]1+2"                               #f                 "3")
+    (make-test-case "addition02" "]1+2 3"                             #f                 "3 4")
+    (make-test-case "addition03" "]1 2+3 4"                           #f                 "4 6")
+    (make-test-case "addition04" "]1 2+3"                             #f                 "4 5")
+    (make-test-case "minus01"    "]2-3"                               #f                 "-1")
+    (make-test-case "minus02"    "]1-(-2)"                            #f                 "3")
+    (make-test-case "minus03"    "]1 2-3 4"                           #f                 "-2 -2")
+    (make-test-case "over01"     "]@{w+1}'1 2 3"                      #f                 "2 3 4")
+    (make-test-case "over02"     "]@{1-w}'3 4 5"                      #f                 "-2 -3 -4")
+    (make-test-case "negation01" "]@-7"                               #f                 "-7")
+    (make-test-case "negation02" "]@-(-2)"                            #f                 "2")
+    (make-test-case "reduce01"   "]@+/1 2 3"                          #f                 "6")
+    (make-test-case "reduce02"   "]@-/1 2 3"                          #f                 "2")
+    (make-test-case "reduce03"   "]@{w-a}/1 2 3"                      #f                 "0")
+    (make-test-case "input01"    "]1:"                                "7"                "7")
+    (make-test-case "input02"    "]0:"                                "1 2 3"            "1 2 3")
+    (make-test-case "input03"    "](1:)+1"                            "7"                "8")
+    (make-test-case "input04"    "]1+0:"                              "1 2 3"            "2 3 4")
+    (make-test-case "input05"    "](0:)+1:"                           (list "2" "1 2 3") "3 4 5")
+    (make-test-case "cond01"     "](1=1;2;3)"                         #f                 "2")
+    (make-test-case "cond02"     "](1=2;1 2;3 4)"                     #f                 "3 4")
+    (make-test-case "cond03"     "]7{w=1;w;a}1"                       #f                 "1")
+    (make-test-case "cond04"     "]7{w=1;w;a}8"                       #f                 "7")
+    (make-test-case "cond05"     "]{w=1;w+1;w=2;w+2;w+3}1"            #f                 "2")
+    (make-test-case "cond06"     "]{w=1;w+1;w=2;w+2;w+3}2"            #f                 "4")
+    (make-test-case "cond07"     "]{w=1;w+1;w=2;w+2;w+3}3"            #f                 "6")
+    (make-test-case "cond08"     "]{w=1;w+1;w=2;w+2;w+3}4"            #f                 "7")
+    (make-test-case "cond09"     "](1=1;2;3)"                         #f                 "2")
+    (make-test-case "self01"     "]{w=0;0;w+_f(w-1)}6"                #f                 "21")
+    (make-test-case "fibonacci"  "]{w=1;1;w=2;1;(_f(w-2))+_f(w-1)}1:" "7"                "13")
     ))
 
 (with-output-to-file
   "tests.markdown"
   (lambda ()
-    (printf "Code | Stdout | Stdin~%")
-    (printf "---- | ------ | -----~%")
+    (printf "Code | Stdin | Stdout~%")
+    (printf "---- | ----- | ------~%")
     (for-all
       (lambda (tc)
-        (if (test-case-input tc)
-          (printf "`~a` | `~a` | `~a`~%" (test-case-code tc) (test-case-expected tc) (test-case-input tc))
-          (printf "`~a` | `~a` |~%" (test-case-code tc) (test-case-expected tc)))
-        )
-      test-cases)))
+        (let ([input (test-case-input tc)])
+          (cond
+            [(and input (list? input))
+             (printf "`~a` | `~{~a~^\\n~}` | `~a`~%"
+                     (test-case-code tc)
+                     input
+                     (test-case-expected tc))]
+            [(and input (string? input))
+             (printf "`~a` | `~a` | `~a`~%"
+                     (test-case-code tc)
+                     input
+                     (test-case-expected tc))]
+            [else
+              (printf "`~a` | | `~a`~%" (test-case-code tc) (test-case-expected tc))])))
+      test-cases))
+  '(replace))
 
 (define build-dir "_build")
 
@@ -72,10 +83,14 @@
             (compile-silly-k target)))
         (let-values ([(to-stdin from-stdout from-stderr process-id)
                       (open-process-ports (format "exec ~a" target) 'line utf-8-transcoder)])
-          (when (test-case-input tc)
-            (put-string to-stdin (test-case-input tc))
-            (flush-output-port to-stdin)
-            (close-output-port to-stdin))
+          (let ([input (test-case-input tc)])
+            (when input
+              (cond
+                [(list? input)
+                 (for-all (lambda (s) (put-string to-stdin s) (newline to-stdin)) input)]
+                [else (put-string to-stdin input)])
+              (flush-output-port to-stdin)
+              (close-output-port to-stdin)))
           (let ([output (get-line from-stdout)])
             (cond
               [(equal? output (test-case-expected tc)) (printf "ok~%")]
@@ -86,11 +101,15 @@
         (let ([scm (with-input-from-string (test-case-code tc) compile-to-scheme)])
           (let* ([go (lambda () (with-output-to-string (lambda () (eval scm))))]
                  [output (cond
-                           [(test-case-input tc) => (lambda (input) (with-input-from-string input go))]
+                           [(test-case-input tc) => (lambda (input)
+                              (cond
+                                [(list? input)
+                                 (with-input-from-string (format "~{~a~^~%~}" input) go)]
+                                [else
+                                 (with-input-from-string input go)]))]
                            [else (go)])])
             (cond
               [(equal? output (test-case-expected tc)) (printf "ok~%")]
-              [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f])))))
-    ))
+              [else (printf " failed! Output: ~a Expected: ~a~%" output (test-case-expected tc)) #f])))))))
 
 (for-all run-test test-cases)
