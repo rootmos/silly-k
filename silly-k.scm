@@ -73,6 +73,7 @@
             [(char=? c #\{)       (make-lexical-token 'LBRACE location #f)]
             [(char=? c #\})       (make-lexical-token 'RBRACE location #f)]
             [(char=? c #\])       (make-lexical-token 'RBRACKET location #f)]
+            [(char=? c #\@)       (make-lexical-token 'AT location #f)]
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
             [(char-numeric? c)    (make-lexical-token 'NUM location (read-number `(,c)))]
@@ -84,10 +85,11 @@
       (let ([parser
               (lalr-parser
                 (expect: 0)
-                (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE LBRACE RBRACE ATOM RBRACKET)
+                (PLUS (left: NUM) MINUS LPAREN RPAREN SLASH QUOTE COLON NEWLINE LBRACE RBRACE ATOM RBRACKET AT)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
-                (expr (expr verb expr) : `(apply ,$2 ,$1 ,$3)
+                (expr (expr AT expr) : `(apply ,$1 #f ,$3)
+                      (expr verb expr) : `(apply ,$2 ,$1 ,$3)
                       (expr expr) : `(apply ,$1 #f ,$2)
                       (LPAREN expr RPAREN) : $2
                       (verb) : $1

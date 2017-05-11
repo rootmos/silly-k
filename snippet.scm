@@ -45,3 +45,4 @@
 (debug-passes "]1")
 (debug-passes "]1 2 3")
 (debug-passes "](+/1 2 3)")
+(debug-passes "]@+/1 2 3")
