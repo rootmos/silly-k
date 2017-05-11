@@ -52,3 +52,4 @@
 (debug-passes "{w=2;w;]w}")
 (debug-passes "(1=2;0 7;1 4)")
 (debug-passes "(1=2;5;]5)")
+(debug-passes "]{w=1;w+1;w=2;w+2;w+3}1")
