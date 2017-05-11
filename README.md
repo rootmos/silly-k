@@ -11,7 +11,9 @@ using the following structure:
   [simply typed lambda calculus](https://en.wikipedia.org/wiki/Simply_typed_lambda_calculus)
   which is used to resolve the very overloaded symbols from `K`
 * after that, the types are thrown away and is compiled to
-  [Malfunction](https://github.com/stedolan/malfunction)
+  [Malfunction](https://github.com/stedolan/malfunction) or to
+  [Scheme](https://en.wikipedia.org/wiki/Scheme_(programming_language)) (which is used mainly for
+  quick tests and the REPL).
 
 ## examples
 Here's some examples of the syntax (taken directly from the [tests](https://github.com/rootmos/silly-k/blob/master/tests.scm)
