@@ -1,9 +1,9 @@
 (library
   (silly-k)
-  (export compile-silly-k
-          compile-silly-k-and-run
-          compile-to-malfunction
-          compile-to-scheme
+  (export ;compile-silly-k
+          ;compile-silly-k-and-run
+          ;compile-to-malfunction
+          ;compile-to-scheme
           passes
           parse-silly-k                  id
           ast-to-Lsrc                    unparse-Lsrc
@@ -15,11 +15,12 @@
           type-lambda-abstractions       unparse-L6
           derive-type-constraints        unparse-L7
           unify-and-substitute-types     unparse-L8
-          expand-idioms
+          ;expand-idioms
           type-check
-          untype                         unparse-L9
-          output-malfunction
-          output-scheme)
+          ;untype                         unparse-L9
+          ;output-malfunction
+          ;output-scheme
+          )
   (import (nanopass)
           (chezscheme)
           (silly-k tools)
@@ -96,7 +97,7 @@
                       (expr verb expr) : `(apply ,$2 ,$1 ,$3)
                       (verb expr) : `(apply ,$1 #f ,$2)
                       (LPAREN expr RPAREN) : $2
-                      (LPAREN cond RPAREN) : `(cond ,$2)
+                      (LPAREN cond RPAREN) : `(cond . ,$2)
                       (num) : $1
                       (verb) : $1
                       (ATOM) : $1
@@ -104,13 +105,13 @@
                 (cond (expr SEMICOLON expr SEMICOLON cond) :
                       `((,$1 ,$3) . ,$5)
                       (expr SEMICOLON expr SEMICOLON expr) :
-                      `((,$1 . ,$3) (else ,$5)))
+                      `((,$1 ,$3) (else ,$5)))
                 (verb (PLUS) : 'plus
                       (MINUS) : 'minus
                       (EQUAL) : 'equal
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
-                      (LBRACE cond RBRACE) : `(dfn (cond ,$2))
+                      (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
                       (LBRACE expr RBRACE) : `(dfn ,$2)
                       (verb adverb) : `(adverb ,$2 ,$1))
                 (adverb (SLASH) : 'over
@@ -127,7 +128,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon))))))
+      (not (not (memq x '(plus minus colon equal))))))
 
   (define adverb?
     (lambda (x)
@@ -141,18 +142,27 @@
       (adverb (a))
       (number (n))
       (num-vector (nv)))
+    (entry Expr)
+    (CondArm (ca)
+      (e0 e1)
+      (else e))
     (Expr (e)
-          nv
-          s
-          v
-          (system n)
-          (adverb a e)
-          (dfn e)
-          (apply e)
-          (apply e0 e1)
-          (apply e0 e1 e2)))
+      nv
+      s
+      v
+      (system n)
+      (adverb a e)
+      (dfn e)
+      (cond (ca* ...))
+      (apply e)
+      (apply e0 e1)
+      (apply e0 e1 e2)))
 
   (define-pass ast-to-Lsrc : * (e) -> Lsrc ()
+    (CondArm : * (e) -> CondArm ()
+      (if (equal? (car e) 'else)
+        `(else ,[Expr (cadr e)])
+        `(,[Expr (car e)] ,[Expr (cadr e)])))
     (Expr : * (e) -> Expr ()
       (cond
         [(num-vector? e) e]
@@ -176,6 +186,9 @@
              [(and (not a) b) `(apply ,v ,(Expr b))]
              [(and (not a) (not b)) `(apply ,v)]
              [(and a (not b)) (error 'ast-to-Lsrc "unsupported fuction application!")]))]
+        [(and (list? e) (eq? (car e) 'cond))
+         (let ([ca* (map CondArm (cdr e))])
+           `(cond (,ca* ...)))]
         [else e]
         ))
     (Expr e))
@@ -210,6 +223,7 @@
   (define to-primfun-table
     '((plus . plus)
       (minus . minus)
+      (equal . equal)
       (each . map)
       (over . reduce)
       (0 . input-vector)
@@ -246,6 +260,15 @@
       (+ (lambda s e))))
 
    (define-pass introduce-lambda-abstractions : L2 (e) -> L3 ()
+      (CondArm : CondArm (ca) -> CondArm (fv)
+        [(else ,e)
+         (let-values ([(e^ fv) (Expr e)])
+           (values `(else ,e^) fv))]
+        [(,e0 ,e1)
+         (let-values ([(e0^ fv0) (Expr e0)]
+                      [(e1^ fv1) (Expr e1)])
+           (let ([fv (append fv0 fv1)])
+             (values `(,e0^ ,e1^) fv)))])
       (Expr : Expr (e) -> Expr (fv)
         [,s (values s (list s))]
         [(primfun ,pf) (values `(primfun ,pf) '())]
@@ -277,8 +300,15 @@
                [(and (not has-w) has-a)
                 (values `(lambda a ,e^) (remove 'a fv))]
                [(and (not has-w) (not has-a))
-                (error 'introduce-lambda-abstractions "nullary dfns not supported")]
-             )))])
+                (error 'introduce-lambda-abstractions "nullary dfns not supported" (unparse-L2 e))]
+             )))]
+        [(cond (,ca* ...))
+         (let* ([cas (map (lambda (ca)
+                            (let-values ([(ca^ fv) (CondArm ca)]) (list ca^ fv)))
+                          ca*)]
+                [ca*^ (map car cas)]
+                [fv (fold-left append '() (map cadr cas))])
+           (values `(cond (,ca*^ ...)) fv))])
       (let-values ([(e^ fv) (Expr e)])
         `(program ,e^ (,fv ...))))
 
@@ -319,7 +349,10 @@
       (- (primfun pf))
       (+ (primfun pf t))
       (- (apply e0 e1))
-      (+ (apply e0 e1 t))))
+      (+ (apply e0 e1 t))
+      (- (cond (ca* ...)))
+      (+ (cond (ca* ...) t))
+      ))
 
   (define-pass introduce-fresh-typevars : L4 (e) -> L5 ()
     (definitions
@@ -339,6 +372,14 @@
         (cond
           [(assq s env) => (lambda (st) (remove st env))]
           [else env])))
+    (CondArm : CondArm (ca env) -> CondArm (env)
+      [(,e0 ,e1)
+       (let*-values ([(e0^ env0) (Expr e0 env)]
+                     [(e1^ env1) (Expr e1 env0)])
+         (values `(,e0^ ,e1^) env1))]
+      [(else ,e)
+       (let*-values ([(e^ env^) (Expr e env)])
+         (values `(else ,e^) env^))])
     (Expr : Expr (e env) -> Expr (env)
       [,s
        (let-values ([(t env^) (type-symbol e env)])
@@ -351,7 +392,18 @@
          (values `(apply ,e0^ ,e1^ ,[fresh-typevar]) env1))]
       [(lambda ,s ,e)
        (let-values ([(e^ env^) (Expr e env)])
-         (values `(lambda ,s ,e^) (abstract-symbol s env^)))])
+         (values `(lambda ,s ,e^) (abstract-symbol s env^)))]
+      [(cond (,ca* ...))
+       (let* ([cas-env (fold-left
+                         (lambda (acc ca)
+                           (let-values ([(ca^ env^) (CondArm ca (cadr acc))])
+                                       (list (append (car acc) (list ca^))
+                                             env^)))
+                         (list '() env)
+                         ca*)]
+              [ca*^ (car cas-env)]
+              [env^ (cadr cas-env)])
+         (values `(cond (,ca*^ ...) ,[fresh-typevar]) env^))])
     (Program : Program (p) -> Program ()
       [(program ,e (,s ...))
        (let-values ([(e^ env) (Expr e '())])
@@ -377,15 +429,27 @@
         (cond
           [(assq s env) => (lambda (st) (values (cdr st) (remove st env)))]
           [else (error 'type-lambda-abstractions "unbound symbol" s env)]))
+      (define (type-symbol s t env)
+        (cond
+          [(assq s env) => (lambda (st) env)]
+          [else (cons `(,s . ,t) env)]))
       (with-output-language (L6 Type)
         (define (mk-lambda-type t0 t1) `(lambda ,t0 ,t1)))
       (with-output-language (L6 Global)
         (define (mk-global-binding st) `(,(car st) ,(cdr st)))))
     (Type : Type (t) -> Type ())
+    (CondArm : CondArm (ca env) -> CondArm (env)
+      [(,e0 ,e1)
+       (let*-values ([(e0^ t0 env0) (Expr e0 env)]
+                     [(e1^ t1 env1) (Expr e1 env0)])
+         (values `(,e0^ ,e1^) env1))]
+      [(else ,e)
+       (let*-values ([(e^ t env^) (Expr e env)])
+         (values `(else ,e^) env^))])
     (Expr : Expr (e env) -> Expr (t env)
       [(,s ,t)
        (let ([t^ (Type t)])
-         (values `(,s ,t^) t^ (cons (cons s t^) env)))]
+         (values `(,s ,t^) t^ (type-symbol s t^ env)))]
       [(primfun ,pf ,t)
        (let ([t^ (Type t)])
          (values `(primfun ,pf ,t^) t^ env))]
@@ -402,16 +466,34 @@
        (let*-values ([(e^ t1 env^) (Expr e env)]
                      [(t0 env^^) (abstract-symbol s env^)])
          (let ([t^ (mk-lambda-type t0 t1)])
-           (values `(lambda (,s ,t0) ,e^ ,t^) t^ env^^)))])
+           (values `(lambda (,s ,t0) ,e^ ,t^) t^ env^^)))]
+      [(cond (,ca* ...) ,t)
+       (let* ([cas-env (fold-left
+                         (lambda (acc ca)
+                           (let-values ([(ca^ env^^) (CondArm ca (cadr acc))])
+                                       (list (append (car acc) (list ca^))
+                                             env^^)))
+                         (list '() env)
+                         ca*)]
+              [ca*^ (car cas-env)]
+              [env^ (cadr cas-env)]
+              [t^ (Type t)])
+         (values `(cond (,ca*^ ...) ,t^) t^ env^))])
     (Program : Program (p) -> Program ()
       [(program ,e (,s* ...))
        (let-values ([(e^ t env) (Expr e '())])
          (let ([g* (map mk-global-binding env)])
            `(program ,e^ ,t (,g* ...))))]))
 
+  (define (bool? e) (eqv? e 'bool))
+
   (define-language
     L7
     (extends L6)
+    (terminals
+      (+ (bool (bool))))
+    (Type (t)
+      (+ bool))
     (Constraint (c)
       (+ (t0 t1))
       (+ (overloaded t0 (t* ...))))
@@ -451,8 +533,10 @@
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
                                   `(lambda (vector int) (lambda (vector int) (vector int)))))
+            (cons 'equal        `(lambda int (lambda int bool)))
             )))
       (with-output-language (L7 Constraint)
+        (define (mk-bool-constraint t) `(,t bool))
         (define (mk-constraint t0 t1) `(,t0 ,t1))
         (define (mk-overloading t0 t*) `(overloaded ,t0 (,t* ...)))))
     (Expr : Expr (e cs) -> Expr (t cs)
@@ -483,7 +567,30 @@
       [(lambda (,s ,t0) ,e ,t1)
        (let*-values ([(e^ et^ cs^) (Expr e cs)])
          (let ([t1^ (Type t1)])
-           (values `(lambda (,s ,(Type t0)) ,e^ ,t1^) t1^ cs^)))])
+           (values `(lambda (,s ,(Type t0)) ,e^ ,t1^) t1^ cs^)))]
+      [(cond (,ca* ...) ,t)
+       (let* ([t^ (Type t)]
+              [cas-cs (fold-left
+                        (lambda (acc ca)
+                          (let-values ([(ca^ cs^) (CondArm ca t^ (cadr acc))])
+                            (list (append (car acc) (list ca^)) cs^)))
+                        (list '() cs)
+                        ca*)]
+              [ca*^ (car cas-cs)]
+              [env^ (cadr cas-cs)])
+         (values `(cond (,ca*^ ...) ,t^) t^ env^))])
+    (CondArm : CondArm (ca t cs) -> CondArm (cs)
+      [(,e0 ,e1)
+       (let*-values ([(e0^ t0 cs0) (Expr e0 cs)]
+                     [(e1^ t1 cs1) (Expr e1 cs)])
+         (let* ([cs^ (append (list (mk-bool-constraint t0)
+                                   (mk-constraint t t1))
+                             (append cs0 cs1))])
+           (values `(,e0^ ,e1^) cs^)))]
+      [(else ,e)
+       (let*-values ([(e^ t^ cs^) (Expr e cs)])
+         (let* ([cs^^ (cons (mk-constraint t t^) (append cs^ cs))])
+           (values `(else ,e^) cs^^)))])
     (Global : Global (g) -> Global ())
     (Type : Type (t) -> Type ())
     (Program : Program (p) -> Program ()
@@ -561,9 +668,12 @@
       (- (program e t (g* ...) (c* ...)))
       (+ (program e t (g* ...)))))
 
-   (define-pass unify-and-substitute-types : L7 (e) -> L8 ()
+   (define-pass unify-and-substitute-types : L7 (ir) -> L8 ()
      (Global : Global (g sub) -> Global ()
        [(,s ,t) `(,s ,[Type t sub])])
+     (CondArm : CondArm (ca sub) -> CondArm ()
+       [(,e0 ,e1) `(,(Expr e0 sub) ,(Expr e1 sub))]
+       [(else ,e) `(else ,(Expr e sub))])
      (Type : Type (t sub) -> Type ()
        [(lambda ,t0 ,t1) `(lambda ,(Type t0 sub) ,(Type t1 sub))]
        [(typevar ,tv) (mk-Type (sub (list 'typevar tv)))]
@@ -578,7 +688,10 @@
        [(vector ,nv ,t) `(vector ,nv ,(Type t sub))]
        [(scalar ,n ,t) `(scalar ,n ,(Type t sub))]
        [(apply ,e0 ,e1 ,t) `(apply ,(Expr e0 sub) ,(Expr e1 sub) ,(Type t sub))]
-       [(lambda (,s ,t0) ,e ,t1) `(lambda (,s ,(Type t0 sub)) ,(Expr e sub) ,(Type t1 sub))])
+       [(lambda (,s ,t0) ,e ,t1) `(lambda (,s ,(Type t0 sub)) ,(Expr e sub) ,(Type t1 sub))]
+       [(cond (,ca* ...) ,t)
+        `(cond (,[map (lambda (ca) (CondArm ca sub)) ca*] ...) ,(Type t sub))]
+       )
      (Program : Program (p) -> Program ()
        [(program ,e ,t (,g* ...) (,c* ...))
         (let ([cs (map unparse-L7 c*)])
@@ -588,96 +701,97 @@
            [else (error 'unify-and-substitute-types "unable to unify types" cs)]
           ))]))
 
-  (define-pass expand-idioms : L8 (e) -> L8 ()
-    (unwrap-Type : Type (t) -> * ()
-      [(vector ,t) `(vector ,t)]
-      [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
-      [,int int])
-    (Expr : Expr (e) -> Expr ()
-      [(primfun ,pf ,t)
-       (let ([t^ (unwrap-Type t)])
-         (cond
-           ; -2 -> 0-2
-           [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
-            `(lambda (x int)
-               (apply
-                 (apply
-                   (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
-                 (scalar 0 int) int) (lambda int int))]
-           ; 1 2 3+4 -> {w+4}'1 2 3
-           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
-            `(lambda (x int)
-               (lambda (xs (vector int))
-                 (apply
-                   (apply
-                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                     (lambda (y int)
-                       (apply
-                         (apply
-                           (primfun plus (lambda int (lambda int int)))
-                           (x int)
-                           (lambda int int))
-                         (y int)
-                         int)
-                     (lambda int int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda (vector int) (vector int)))
-               (lambda int (lambda (vector int) (vector int))))]
-           ; 1+2 3 -> 3 4
-           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
-            `(lambda (xs (vector int))
-               (lambda (x int)
-                 (apply
-                   (apply
-                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                     (lambda (y int)
-                       (apply
-                         (apply
-                           (primfun plus (lambda int (lambda int int)))
-                           (y int)
-                           (lambda int int))
-                         (x int)
-                         int)
-                       (lambda int int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda int (vector int)))
-               (lambda (vector int) (lambda int (vector int))))]
-           ; 1 2+3 4 or 1 2-3 4
-           [(and (or (equal? pf 'plus) (equal? pf 'minus))
-                 (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
-            `(lambda (ys (vector int))
-               (lambda (xs (vector int))
-                 (apply
-                   (apply
-                     (apply
-                       (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
-                       (primfun ,pf (lambda int (lambda int int)))
-                       (lambda (vector int) (lambda (vector int) (vector int))))
-                     (ys (vector int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda (vector int) (vector int)))
-               (lambda (vector int) (lambda (vector int) (vector int))))]
-           [(equal? pf 'display)
-            (cond
-              [(equal? '(lambda int int) t^)
-               `(primfun output-scalar (lambda int int))]
-              [(equal? '(lambda (vector int) (vector int)) t^)
-               `(primfun output-vector (lambda (vector int) (vector int)))]
-              [else (error 'expand-idioms "displaying unsupported type" t^)])]
-           [else `(primfun ,pf ,t)]))]
-      ))
+  ;(define-pass expand-idioms : L8 (e) -> L8 ()
+  ;  (unwrap-Type : Type (t) -> * ()
+  ;    [(vector ,t) `(vector ,t)]
+  ;    [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
+  ;    [,int int])
+  ;  (Expr : Expr (e) -> Expr ()
+  ;    [(primfun ,pf ,t)
+  ;     (let ([t^ (unwrap-Type t)])
+  ;       (cond
+  ;         ; -2 -> 0-2
+  ;         [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
+  ;          `(lambda (x int)
+  ;             (apply
+  ;               (apply
+  ;                 (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
+  ;               (scalar 0 int) int) (lambda int int))]
+  ;         ; 1 2 3+4 -> {w+4}'1 2 3
+  ;         [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
+  ;          `(lambda (x int)
+  ;             (lambda (xs (vector int))
+  ;               (apply
+  ;                 (apply
+  ;                   (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+  ;                   (lambda (y int)
+  ;                     (apply
+  ;                       (apply
+  ;                         (primfun plus (lambda int (lambda int int)))
+  ;                         (x int)
+  ;                         (lambda int int))
+  ;                       (y int)
+  ;                       int)
+  ;                   (lambda int int))
+  ;                   (lambda (vector int) (vector int)))
+  ;                 (xs (vector int))
+  ;                 (vector int))
+  ;               (lambda (vector int) (vector int)))
+  ;             (lambda int (lambda (vector int) (vector int))))]
+  ;         ; 1+2 3 -> 3 4
+  ;         [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
+  ;          `(lambda (xs (vector int))
+  ;             (lambda (x int)
+  ;               (apply
+  ;                 (apply
+  ;                   (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+  ;                   (lambda (y int)
+  ;                     (apply
+  ;                       (apply
+  ;                         (primfun plus (lambda int (lambda int int)))
+  ;                         (y int)
+  ;                         (lambda int int))
+  ;                       (x int)
+  ;                       int)
+  ;                     (lambda int int))
+  ;                   (lambda (vector int) (vector int)))
+  ;                 (xs (vector int))
+  ;                 (vector int))
+  ;               (lambda int (vector int)))
+  ;             (lambda (vector int) (lambda int (vector int))))]
+  ;         ; 1 2+3 4 or 1 2-3 4
+  ;         [(and (or (equal? pf 'plus) (equal? pf 'minus))
+  ;               (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
+  ;          `(lambda (ys (vector int))
+  ;             (lambda (xs (vector int))
+  ;               (apply
+  ;                 (apply
+  ;                   (apply
+  ;                     (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
+  ;                     (primfun ,pf (lambda int (lambda int int)))
+  ;                     (lambda (vector int) (lambda (vector int) (vector int))))
+  ;                   (ys (vector int))
+  ;                   (lambda (vector int) (vector int)))
+  ;                 (xs (vector int))
+  ;                 (vector int))
+  ;               (lambda (vector int) (vector int)))
+  ;             (lambda (vector int) (lambda (vector int) (vector int))))]
+  ;         [(equal? pf 'display)
+  ;          (cond
+  ;            [(equal? '(lambda int int) t^)
+  ;             `(primfun output-scalar (lambda int int))]
+  ;            [(equal? '(lambda (vector int) (vector int)) t^)
+  ;             `(primfun output-vector (lambda (vector int) (vector int)))]
+  ;            [else (error 'expand-idioms "displaying unsupported type" t^)])]
+  ;         [else `(primfun ,pf ,t)]))]
+  ;    ))
 
   (define-pass type-check  : L8 (e) -> L8 ()
     (unwrap-Type : Type (t) -> * ()
       [(vector ,t) `(vector ,t)]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
-      [,int int])
+      [,int int]
+      [,bool bool])
     (Expr : Expr (e ctx) -> Expr (t)
       [(,s ,t)
        (let ([t^ (unwrap-Type t)])
@@ -712,7 +826,7 @@
             (values `(lambda (,s ,t0) ,e^ ,t1) ut1)]
            [else (error 'type-check "type error in lambda"
                         (list s ut0) (list (unparse-L8 e^) t^) ut1)]))]
-      [else (error 'type-check "yo")])
+      )
     (Program : Program (p) -> Program ()
       [(program ,e ,t (,g* ...))
        (let-values ([(e^ t^) (Expr e '())]) ; TOOD: populate the ctx using the globals (or refactor out the globals)
@@ -721,267 +835,270 @@
              [(equal? ut t^) `(program ,e^ ,t (,g* ...))]
              [else (error 'type-check "type error in program" (list e ut) (list e^ t^))])))]))
 
-  (define-language
-    L9
-    (extends L8)
-    (terminals
-      (- (int (int))))
-    (Type (t)
-      (- (lambda t0 t1))
-      (- int)
-      (- (vector t)))
-    (Expr (e)
-      (- (s t))
-      (+ s)
-      (- (scalar n t))
-      (+ (scalar n))
-      (- (vector nv t))
-      (+ (vector nv))
-      (- (primfun pf t))
-      (+ (primfun pf))
-      (- (apply e0 e1 t))
-      (+ (apply e0 e1))
-      (- (lambda (s t0) e t1))
-      (+ (lambda (s) e)))
-    (Global (g)
-      (- (s t)))
-    (Program (p)
-      (- (program e t (g* ...)))
-      (+ (program e (s* ...)))))
+  ;(define-language
+  ;  L9
+  ;  (extends L8)
+  ;  (terminals
+  ;    (- (int (int))))
+  ;  (Type (t)
+  ;    (- (lambda t0 t1))
+  ;    (- int)
+  ;    (- (vector t)))
+  ;  (Expr (e)
+  ;    (- (s t))
+  ;    (+ s)
+  ;    (- (scalar n t))
+  ;    (+ (scalar n))
+  ;    (- (vector nv t))
+  ;    (+ (vector nv))
+  ;    (- (primfun pf t))
+  ;    (+ (primfun pf))
+  ;    (- (apply e0 e1 t))
+  ;    (+ (apply e0 e1))
+  ;    (- (lambda (s t0) e t1))
+  ;    (+ (lambda (s) e)))
+  ;  (Global (g)
+  ;    (- (s t)))
+  ;  (Program (p)
+  ;    (- (program e t (g* ...)))
+  ;    (+ (program e (s* ...)))))
 
-  (define-pass untype : L8 (e) -> L9 ()
-    (Global : Global (g) -> Expr ()
-      [(,s ,t) s])
-    (Expr : Expr (e) -> Expr ()
-      [(,s ,t) s]
-      [(scalar ,n ,t) `(scalar ,n)]
-      [(vector ,nv ,t) `(vector ,nv)]
-      [(primfun ,pf ,t) `(primfun ,pf)]
-      [(apply ,e0 ,e1 ,t) `(apply ,[Expr e0] ,[Expr e1])]
-      [(lambda (,s ,t0) ,e ,t1) `(lambda (,s) ,[Expr e])]
-      )
-    (Program : Program (p) -> Program ()
-      [(program ,e ,t (,g* ...))
-       `(program ,(Expr e) (,[map Global g*] ...))]))
-
-
-  (define-pass output-scheme : L9 (e) -> * ()
-    (Expr : Expr (e) -> * ()
-      [,s s]
-      [(scalar ,n) n]
-      [(vector ,nv) `(quote ,nv)]
-      [(primfun ,pf)
-       (cond
-         [(equal? pf 'minus) '(lambda (y) (lambda (x) (- x y)))]
-         [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
-         [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
-         [(equal? pf 'reduce)
-          '(lambda (f)
-            (lambda (xs)
-              (letrec ([go (lambda (acc xs)
-                             (cond
-                               [(null? xs) acc]
-                               [else (go ((f acc) (car xs)) (cdr xs))]))])
-                (let ([rs (reverse xs)])
-                  (go (car rs) (cdr rs))))))]
-         [(equal? pf 'zip)
-          '(lambda (f)
-             (lambda (ys)
-               (lambda (xs)
-                 (letrec ([go (lambda (xs ys)
-                                (cond
-                                  [(and (null? xs) (null? ys)) '()]
-                                  [else (cons ((f (car ys)) (car xs)) (go (cdr xs) (cdr ys)))]))])
-                   (go xs ys)))))]
-         [(equal? pf 'input-scalar)
-          '(string->number (get-line (current-input-port)))]
-         [(equal? pf 'input-vector)
-          '(with-input-from-string (format "(~a)" (get-line (current-input-port))) read)]
-         [(equal? pf 'output-scalar) 'display]
-         [(equal? pf 'output-vector)
-          '(letrec ([print-vector (lambda (xs)
-                                    (display (car xs))
-                                    (let ([tail (cdr xs)])
-                                      (cond
-                                        [(null? tail) (void)]
-                                        [else (display " ") (print-vector tail)])))])
-             print-vector)]
-         [else (error 'output-scheme "unsupported primitive function" pf)])]
-      [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
-      [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])])
-    (Program : Program (p) -> * ()
-      [(program ,e (,s* ...)) (Expr e)]))
+  ;(define-pass untype : L8 (e) -> L9 ()
+  ;  (Global : Global (g) -> Expr ()
+  ;    [(,s ,t) s])
+  ;  (Expr : Expr (e) -> Expr ()
+  ;    [(,s ,t) s]
+  ;    [(scalar ,n ,t) `(scalar ,n)]
+  ;    [(vector ,nv ,t) `(vector ,nv)]
+  ;    [(primfun ,pf ,t) `(primfun ,pf)]
+  ;    [(apply ,e0 ,e1 ,t) `(apply ,[Expr e0] ,[Expr e1])]
+  ;    [(lambda (,s ,t0) ,e ,t1) `(lambda (,s) ,[Expr e])]
+  ;    )
+  ;  (Program : Program (p) -> Program ()
+  ;    [(program ,e ,t (,g* ...))
+  ;     `(program ,(Expr e) (,[map Global g*] ...))]))
 
 
-  (define-pass output-malfunction : L9 (e) -> * ()
-    (definitions
-      (define (mlf-symbol s) (string->symbol (format "$~s" s)))
-      (define mlf-write-scalar-lambda
-        '(global $Pervasives $print_int))
-      (define mlf-unit '(block (tag 0)))
-      (define malfunction-print-newline
-        `(apply (global $Pervasives $print_newline) ,mlf-unit))
-      (define malfunction-print-space
-        `(apply (global $Pervasives $print_char) 32))
-      (define (malfunction-error reason code)
-        `(seq (apply (global $Pervasives $prerr_endline) ,reason)
-              (apply (global $Pervasives $exit) ,code)))
-      (define malfunction-length-error
-        (malfunction-error "length error" 3))
-      (define mlf-write-vector-lambda
-        `(lambda ($l)
-           (let ($n (length $l))
-             (apply (global $Array $iteri)
-                    (lambda ($i $x)
-                      (seq
-                        (apply $write_scalar $x)
-                        (if (< (+ $i 1) $n)
-                          ,malfunction-print-space
-                          ,mlf-unit)))
-                    $l))))
-      (define malfunction-map-lambda
-        `(lambda ($f $v)
-           (apply (global $Array $map) $f $v)))
-      (define malfunction-zip-lambda
-        `(lambda ($f $v $w)
-           (let
-             ($n (length $v))
-             ($m (length $w))
-             (if (== $n $m)
-               (apply (global $Array $map2) $f $v $w)
-               ,malfunction-length-error))))
-      (define malfunction-foldr-lambda
-        `(lambda ($f $b $v)
-           (apply (global $Array $fold_right) $f $v $b)))
-      (define malfunction-reduce-lambda
-        `(lambda ($f $v)
-           (let
-             ($n (length $v))
-             (rec ($go (lambda ($acc $i)
-                         (switch $i
-                           (-1 $acc)
-                           (_ (apply $go (apply $f $acc (load $v $i)) (- $i 1)))))))
-             (apply $go (load $v (- $n 1)) (- $n 2)))))
-      (define (make-malfunction-vector l)
-        (letrec ([go (lambda (i k)
-                       (if (null? k)
-                         '()
-                         (cons `(store $v ,i ,(car k)) (go (+ i 1) (cdr k)))))])
-          (let ([body (append '(seq) (go 0 l) '($v))])
-            `(let ($v (makevec ,(length l) 0)) ,body))))
-      (define malfunction-read-scalar-lambda
-        `(lambda ($x)
-           (apply (global $Pervasives $read_int) ,mlf-unit)))
-      (define malfunction-read-vector-lambda
-        `(lambda ($x)
-           (apply (global $Array $map)
-                  (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
-                  (apply (global $Array $of_list)
-                         (apply (global $Str $split) (apply (global $Str $regexp) " +")
-                                (apply (global $Pervasives $read_line) ,mlf-unit)))))))
-    (Expr : Expr (e) -> * ()
-      [,s (mlf-symbol s)]
-      [(scalar ,n) n]
-      [(vector ,nv) (make-malfunction-vector nv)]
-      [(primfun ,pf)
-       (cond
-         [(equal? pf 'minus)
-          `(lambda ($y $x) (- $x $y))]
-         [(equal? pf 'plus)
-          `(lambda ($x $y) (+ $x $y))]
-         [(equal? pf 'map)
-           `(lambda ($f $xs) (apply $map $f $xs))]
-         [(equal? pf 'reduce)
-          `(lambda ($f $xs) (apply $reduce $f $xs))]
-         [(equal? pf 'zip)
-          `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
-         [(equal? pf 'input-vector)
-          `(apply $read_vector ,mlf-unit)]
-         [(equal? pf 'input-scalar)
-          `(apply $read_scalar ,mlf-unit)]
-         [(equal? pf 'output-scalar)
-          '$write_scalar]
-         [(equal? pf 'output-vector)
-          '$write_vector]
-         [else (error 'output-malfunction "unsupported primitive function" pf)])]
-      [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
-      [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
-      [else (error 'output-malfunction "unsupported expr" e)])
-    (Program : Program (p) -> * ()
-      [(program ,e (,s* ...))
-       `(module
-          ($map ,malfunction-map-lambda)
-          ($zip ,malfunction-zip-lambda)
-          ($foldr ,malfunction-foldr-lambda)
-          ($reduce ,malfunction-reduce-lambda)
-          ($read_scalar ,malfunction-read-scalar-lambda)
-          ($read_vector ,malfunction-read-vector-lambda)
-          ($write_scalar ,mlf-write-scalar-lambda)
-          ($write_vector ,mlf-write-vector-lambda)
-          (_ ,[Expr e])
-          (_ ,malfunction-print-newline)
-          (export))
-       ]))
+  ;(define-pass output-scheme : L9 (e) -> * ()
+  ;  (Expr : Expr (e) -> * ()
+  ;    [,s s]
+  ;    [(scalar ,n) n]
+  ;    [(vector ,nv) `(quote ,nv)]
+  ;    [(primfun ,pf)
+  ;     (cond
+  ;       [(equal? pf 'minus) '(lambda (y) (lambda (x) (- x y)))]
+  ;       [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
+  ;       [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
+  ;       [(equal? pf 'reduce)
+  ;        '(lambda (f)
+  ;          (lambda (xs)
+  ;            (letrec ([go (lambda (acc xs)
+  ;                           (cond
+  ;                             [(null? xs) acc]
+  ;                             [else (go ((f acc) (car xs)) (cdr xs))]))])
+  ;              (let ([rs (reverse xs)])
+  ;                (go (car rs) (cdr rs))))))]
+  ;       [(equal? pf 'zip)
+  ;        '(lambda (f)
+  ;           (lambda (ys)
+  ;             (lambda (xs)
+  ;               (letrec ([go (lambda (xs ys)
+  ;                              (cond
+  ;                                [(and (null? xs) (null? ys)) '()]
+  ;                                [else (cons ((f (car ys)) (car xs)) (go (cdr xs) (cdr ys)))]))])
+  ;                 (go xs ys)))))]
+  ;       [(equal? pf 'input-scalar)
+  ;        '(string->number (get-line (current-input-port)))]
+  ;       [(equal? pf 'input-vector)
+  ;        '(with-input-from-string (format "(~a)" (get-line (current-input-port))) read)]
+  ;       [(equal? pf 'output-scalar) 'display]
+  ;       [(equal? pf 'output-vector)
+  ;        '(letrec ([print-vector (lambda (xs)
+  ;                                  (display (car xs))
+  ;                                  (let ([tail (cdr xs)])
+  ;                                    (cond
+  ;                                      [(null? tail) (void)]
+  ;                                      [else (display " ") (print-vector tail)])))])
+  ;           print-vector)]
+  ;       [else (error 'output-scheme "unsupported primitive function" pf)])]
+  ;    [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
+  ;    [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
+  ;    [else
+  ;      ; TODO: this case should not be necessary
+  ;      (error 'output-scheme "unsupported expr" e)])
+  ;  (Program : Program (p) -> * ()
+  ;    [(program ,e (,s* ...)) (Expr e)]))
+
+
+  ;(define-pass output-malfunction : L9 (e) -> * ()
+  ;  (definitions
+  ;    (define (mlf-symbol s) (string->symbol (format "$~s" s)))
+  ;    (define mlf-write-scalar-lambda
+  ;      '(global $Pervasives $print_int))
+  ;    (define mlf-unit '(block (tag 0)))
+  ;    (define malfunction-print-newline
+  ;      `(apply (global $Pervasives $print_newline) ,mlf-unit))
+  ;    (define malfunction-print-space
+  ;      `(apply (global $Pervasives $print_char) 32))
+  ;    (define (malfunction-error reason code)
+  ;      `(seq (apply (global $Pervasives $prerr_endline) ,reason)
+  ;            (apply (global $Pervasives $exit) ,code)))
+  ;    (define malfunction-length-error
+  ;      (malfunction-error "length error" 3))
+  ;    (define mlf-write-vector-lambda
+  ;      `(lambda ($l)
+  ;         (let ($n (length $l))
+  ;           (apply (global $Array $iteri)
+  ;                  (lambda ($i $x)
+  ;                    (seq
+  ;                      (apply $write_scalar $x)
+  ;                      (if (< (+ $i 1) $n)
+  ;                        ,malfunction-print-space
+  ;                        ,mlf-unit)))
+  ;                  $l))))
+  ;    (define malfunction-map-lambda
+  ;      `(lambda ($f $v)
+  ;         (apply (global $Array $map) $f $v)))
+  ;    (define malfunction-zip-lambda
+  ;      `(lambda ($f $v $w)
+  ;         (let
+  ;           ($n (length $v))
+  ;           ($m (length $w))
+  ;           (if (== $n $m)
+  ;             (apply (global $Array $map2) $f $v $w)
+  ;             ,malfunction-length-error))))
+  ;    (define malfunction-foldr-lambda
+  ;      `(lambda ($f $b $v)
+  ;         (apply (global $Array $fold_right) $f $v $b)))
+  ;    (define malfunction-reduce-lambda
+  ;      `(lambda ($f $v)
+  ;         (let
+  ;           ($n (length $v))
+  ;           (rec ($go (lambda ($acc $i)
+  ;                       (switch $i
+  ;                         (-1 $acc)
+  ;                         (_ (apply $go (apply $f $acc (load $v $i)) (- $i 1)))))))
+  ;           (apply $go (load $v (- $n 1)) (- $n 2)))))
+  ;    (define (make-malfunction-vector l)
+  ;      (letrec ([go (lambda (i k)
+  ;                     (if (null? k)
+  ;                       '()
+  ;                       (cons `(store $v ,i ,(car k)) (go (+ i 1) (cdr k)))))])
+  ;        (let ([body (append '(seq) (go 0 l) '($v))])
+  ;          `(let ($v (makevec ,(length l) 0)) ,body))))
+  ;    (define malfunction-read-scalar-lambda
+  ;      `(lambda ($x)
+  ;         (apply (global $Pervasives $read_int) ,mlf-unit)))
+  ;    (define malfunction-read-vector-lambda
+  ;      `(lambda ($x)
+  ;         (apply (global $Array $map)
+  ;                (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
+  ;                (apply (global $Array $of_list)
+  ;                       (apply (global $Str $split) (apply (global $Str $regexp) " +")
+  ;                              (apply (global $Pervasives $read_line) ,mlf-unit)))))))
+  ;  (Expr : Expr (e) -> * ()
+  ;    [,s (mlf-symbol s)]
+  ;    [(scalar ,n) n]
+  ;    [(vector ,nv) (make-malfunction-vector nv)]
+  ;    [(primfun ,pf)
+  ;     (cond
+  ;       [(equal? pf 'minus)
+  ;        `(lambda ($y $x) (- $x $y))]
+  ;       [(equal? pf 'plus)
+  ;        `(lambda ($x $y) (+ $x $y))]
+  ;       [(equal? pf 'map)
+  ;         `(lambda ($f $xs) (apply $map $f $xs))]
+  ;       [(equal? pf 'reduce)
+  ;        `(lambda ($f $xs) (apply $reduce $f $xs))]
+  ;       [(equal? pf 'zip)
+  ;        `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
+  ;       [(equal? pf 'input-vector)
+  ;        `(apply $read_vector ,mlf-unit)]
+  ;       [(equal? pf 'input-scalar)
+  ;        `(apply $read_scalar ,mlf-unit)]
+  ;       [(equal? pf 'output-scalar)
+  ;        '$write_scalar]
+  ;       [(equal? pf 'output-vector)
+  ;        '$write_vector]
+  ;       [else (error 'output-malfunction "unsupported primitive function" pf)])]
+  ;    [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
+  ;    [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
+  ;    [else (error 'output-malfunction "unsupported expr" e)])
+  ;  (Program : Program (p) -> * ()
+  ;    [(program ,e (,s* ...))
+  ;     `(module
+  ;        ($map ,malfunction-map-lambda)
+  ;        ($zip ,malfunction-zip-lambda)
+  ;        ($foldr ,malfunction-foldr-lambda)
+  ;        ($reduce ,malfunction-reduce-lambda)
+  ;        ($read_scalar ,malfunction-read-scalar-lambda)
+  ;        ($read_vector ,malfunction-read-vector-lambda)
+  ;        ($write_scalar ,mlf-write-scalar-lambda)
+  ;        ($write_vector ,mlf-write-vector-lambda)
+  ;        (_ ,[Expr e])
+  ;        (_ ,malfunction-print-newline)
+  ;        (export))
+  ;     ]))
 
   (define (id x) x)
 
   (define passes
     '((parse-silly-k                 . id)
-      ;(ast-to-Lsrc                   . unparse-Lsrc)
-      ;(differentiate-scalars         . unparse-L1)
-      ;(translate-to-primfuns         . unparse-L2)
-      ;(introduce-lambda-abstractions . unparse-L3)
-      ;(type-scalars-and-vectors      . unparse-L4)
-      ;(introduce-fresh-typevars      . unparse-L5)
-      ;(type-lambda-abstractions      . unparse-L6)
-      ;(derive-type-constraints       . unparse-L7)
-      ;(unify-and-substitute-types    . unparse-L8)
-      ;(type-check                    . unparse-L8)
+      (ast-to-Lsrc                   . unparse-Lsrc)
+      (differentiate-scalars         . unparse-L1)
+      (translate-to-primfuns         . unparse-L2)
+      (introduce-lambda-abstractions . unparse-L3)
+      (type-scalars-and-vectors      . unparse-L4)
+      (introduce-fresh-typevars      . unparse-L5)
+      (type-lambda-abstractions      . unparse-L6)
+      (derive-type-constraints       . unparse-L7)
+      (unify-and-substitute-types    . unparse-L8)
+      (type-check                    . unparse-L8)
       ;(expand-idioms                 . unparse-L8)
       ;(type-check                    . unparse-L8)
       ;(untype                        . unparse-L9)
       ;(output-scheme                 . id)
       ))
 
-  (define (compiler-frontend)
-    (untype
-      (expand-idioms
-        (unify-and-substitute-types
-          (derive-type-constraints
-            (type-lambda-abstractions
-              (introduce-fresh-typevars
-                (type-scalars-and-vectors
-                  (introduce-lambda-abstractions
-                    (translate-to-primfuns
-                      (differentiate-scalars
-                        (ast-to-Lsrc
-                          (parse-silly-k)))))))))))))
+  ;(define (compiler-frontend)
+  ;  (untype
+  ;    (expand-idioms
+  ;      (unify-and-substitute-types
+  ;        (derive-type-constraints
+  ;          (type-lambda-abstractions
+  ;            (introduce-fresh-typevars
+  ;              (type-scalars-and-vectors
+  ;                (introduce-lambda-abstractions
+  ;                  (translate-to-primfuns
+  ;                    (differentiate-scalars
+  ;                      (ast-to-Lsrc
+  ;                        (parse-silly-k)))))))))))))
 
-  (define (compile-to-malfunction)
-    (output-malfunction (compiler-frontend)))
+  ;(define (compile-to-malfunction)
+  ;  (output-malfunction (compiler-frontend)))
 
-  (define (compile-to-scheme)
-    (output-scheme (compiler-frontend)))
+  ;(define (compile-to-scheme)
+  ;  (output-scheme (compiler-frontend)))
 
-  (define compile-silly-k
-    (lambda (o)
-      (compile-malfunction o (compile-to-malfunction))))
+  ;(define compile-silly-k
+  ;  (lambda (o)
+  ;    (compile-malfunction o (compile-to-malfunction))))
 
-  (define (compile-silly-k-and-run)
-    (compile "a.out")
-    (assert (= 0 (system "./a.out")))
-    (void))
+  ;(define (compile-silly-k-and-run)
+  ;  (compile "a.out")
+  ;  (assert (= 0 (system "./a.out")))
+  ;  (void))
 
-  (define compile-malfunction
-    (lambda (out mlf)
-      (let* ([pn (port-name (current-input-port))]
-             [fn (string-append pn ".mlf")] )
-        (with-output-to-file fn
-          (lambda ()
-            (write mlf)
-            (flush-output-port)
-            (assert (= 0 (system (format "exec malfunction cmx ~s" fn))))
-            (assert (= 0 (system (format "exec ocamlopt.opt -o ~s str.cmxa ~s.cmx" out pn)))))
-          '(replace)))))
+  ;(define compile-malfunction
+  ;  (lambda (out mlf)
+  ;    (let* ([pn (port-name (current-input-port))]
+  ;           [fn (string-append pn ".mlf")] )
+  ;      (with-output-to-file fn
+  ;        (lambda ()
+  ;          (write mlf)
+  ;          (flush-output-port)
+  ;          (assert (= 0 (system (format "exec malfunction cmx ~s" fn))))
+  ;          (assert (= 0 (system (format "exec ocamlopt.opt -o ~s str.cmxa ~s.cmx" out pn)))))
+  ;        '(replace)))))
 
   )
