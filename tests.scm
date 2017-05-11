@@ -35,7 +35,7 @@
     (make-test-case "cond08"     "]{w=1;w+1;w=2;w+2;w+3}4"            #f         "7")
     (make-test-case "cond09"     "](1=1;2;3)"                         #f         "2")
     (make-test-case "self01"     "]{w=0;0;w+_f(w-1)}6"                #f         "21")
-    (make-test-case "self02"     "]{w=1;1;w=2;1;(_f(w-2))+_f(w-1)}7"  #f         "13")
+    (make-test-case "fibonacci"  "]{w=1;1;w=2;1;(_f(w-2))+_f(w-1)}1:" "7"        "13")
     ))
 
 (define build-dir "_build")
