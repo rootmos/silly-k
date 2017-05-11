@@ -973,7 +973,7 @@
     (definitions
       (define (mlf-symbol s) (string->symbol (format "$~s" s)))
       (define mlf-write-scalar-lambda
-        '(global $Pervasives $print_int))
+        '(lambda ($x) (seq (apply (global $Pervasives $print_int) $x) $x)))
       (define mlf-unit '(block (tag 0)))
       (define malfunction-print-newline
         `(apply (global $Pervasives $print_newline) ,mlf-unit))
