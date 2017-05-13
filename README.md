@@ -1,4 +1,6 @@
 # silly-k
+![Build status](https://travis-ci.org/rootmos/silly-k.svg?branch=master)
+
 `silly-k` is an experimental hobby language inspired by [K](http://kparc.com/)
 and [APL](https://en.wikipedia.org/wiki/APL_(programming_language)).
 
