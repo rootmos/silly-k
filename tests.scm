@@ -36,6 +36,10 @@
     (make-test-case "cond09"     "](1=1;2;3)"                         #f                 "2")
     (make-test-case "self01"     "]{w=0;0;w+_f(w-1)}6"                #f                 "21")
     (make-test-case "fibonacci"  "]{w=1;1;w=2;1;(_f(w-2))+_f(w-1)}1:" "7"                "13")
+    (make-test-case "bind01"     "]x+x:7"                             #f                 "14")
+    (make-test-case "bind02"     "](x:1)+x:2"                         #f                 "3")
+    (make-test-case "bind03"     "]x+(x:1)+x:2"                       #f                 "4")
+    (make-test-case "bind04"     "]x+x{x:1+a-w}x:2"                   #f                 "3")
     ))
 
 (with-output-to-file

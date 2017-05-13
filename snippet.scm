@@ -42,7 +42,6 @@
 (debug-passes "(0:)+0:")
 (debug-passes "](-2)")
 (debug-passes "2-3")
-(debug-passes "]1")
 (debug-passes "]1 2 3")
 (debug-passes "](+/1 2 3)")
 (debug-passes "]@+/1 2 3")
@@ -54,3 +53,7 @@
 (debug-passes "(1=2;5;]5)")
 (debug-passes "]{w=1;w+1;w=2;w+2;w+3}1")
 (debug-passes "{w=0;0;1+_f(w-1)}")
+(debug-passes "x+x:7")
+(debug-passes "(x:8)+x:7")
+(debug-passes "x+(x:7)+1")
+

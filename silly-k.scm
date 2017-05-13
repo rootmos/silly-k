@@ -10,7 +10,12 @@
           differentiate-scalars          unparse-L1
           translate-to-primfuns          unparse-L2
           introduce-lambda-abstractions  unparse-L3
+          embedd-L3-into-L3-spine-intermediate
+          introduce-let-spine            unparse-L3-spine-intermediate
+          translate-L3-spine-intermediate-into-L3-spine  unparse-L3-spine
+          remove-lets                    unparse-L3-without-let
           type-scalars-and-vectors       unparse-L4
+          pick-spine-values              unparse-L3-picked-spine-values
           introduce-fresh-typevars       unparse-L5
           type-lambda-abstractions       unparse-L6
           derive-type-constraints        unparse-L7
@@ -25,6 +30,33 @@
           (chezscheme)
           (silly-k tools)
           (lalr))
+
+  (define (id x) x)
+
+  (define passes
+    '((parse-silly-k                                 . id)
+      (ast-to-Lsrc                                   . unparse-Lsrc)
+      (differentiate-scalars                         . unparse-L1)
+      (translate-to-primfuns                         . unparse-L2)
+      (introduce-lambda-abstractions                 . unparse-L3)
+      (embedd-L3-into-L3-spine-intermediate          . unparse-L3-spine-intermediate)
+      (introduce-let-spine                           . unparse-L3-spine-intermediate)
+      (translate-L3-spine-intermediate-into-L3-spine . unparse-L3-spine)
+      (pick-spine-values                             . unparse-L3-picked-spine-values)
+      (remove-lets                                   . unparse-L3-without-let)
+      (type-scalars-and-vectors                      . unparse-L4)
+      (introduce-fresh-typevars                      . unparse-L5)
+      (type-lambda-abstractions                      . unparse-L6)
+      (derive-type-constraints                       . unparse-L7)
+      (unify-and-substitute-types                    . unparse-L8)
+      (type-check                                    . unparse-L8)
+      (expand-idioms                                 . unparse-L8)
+      (type-check                                    . unparse-L8)
+      (untype                                        . unparse-L9)
+      ;(output-scheme                                . id)
+      (output-malfunction                            . id)
+      ))
+
 
   (define lex
     (lambda ()
@@ -95,9 +127,10 @@
                  UNDERSCORE)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
-                (expr (verb AT expr) : `(apply ,$1 #f ,$3)
+                (expr (expr AT expr) : `(apply ,$1 #f ,$3)
                       (expr verb expr) : `(apply ,$2 ,$1 ,$3)
                       (verb expr) : `(apply ,$1 #f ,$2)
+                      (ATOM COLON expr) : `(let ,$1 ,$3)
                       (LPAREN expr RPAREN) : $2
                       (LPAREN cond RPAREN) : `(cond . ,$2)
                       (num) : $1
@@ -157,6 +190,7 @@
       (adverb a e)
       (dfn e)
       (cond (ca* ...))
+      (let s e)
       (apply e)
       (apply e0 e1)
       (apply e0 e1 e2)))
@@ -192,6 +226,8 @@
         [(and (list? e) (eq? (car e) 'cond))
          (let ([ca* (map CondArm (cdr e))])
            `(cond (,ca* ...)))]
+        [(and (list? e) (eq? (car e) 'let))
+         `(let ,[Expr (cadr e)], [Expr (caddr e)])]
         [else e]
         ))
     (Expr e))
@@ -255,7 +291,7 @@
     (extends L2)
     (entry Program)
     (Program (p)
-      (+ (program e (s* ...))))
+      (+ (program e)))
     (Expr (e)
       (- (dfn e))
       (- (apply e))
@@ -275,7 +311,7 @@
                       [(e1^ fv1) (Expr e1)])
            (let ([fv (append fv0 fv1)])
              (values `(,e0^ ,e1^) fv)))])
-      (Expr : Expr (e) -> Expr (fv)
+      (Expr : Expr (expr) -> Expr (fv)
         [,s (values s (list s))]
         [(primfun ,pf) (values `(primfun ,pf) '())]
         [(scalar ,n) (values `(scalar ,n) '())]
@@ -294,6 +330,9 @@
                       [(e2^ fv2) (Expr e2)])
            (let ([fv (append fv0 fv1 fv2)])
              (values `(apply (apply ,e0^ ,e2^) ,e1^) fv)))]
+        [(let ,s ,e)
+         (let-values ([(e^ fv) (Expr e)])
+           (values `(let ,s ,e^) fv))]
         [(dfn ,e)
          (let-values ([(e^ fv) (Expr e)])
            (let ([has-a (memv 'a fv)]
@@ -326,13 +365,118 @@
                 [fv (fold-left append '() (map cadr cas))])
            (values `(cond (,ca*^ ...)) fv))])
       (let-values ([(e^ fv) (Expr e)])
-        `(program ,e^ (,fv ...))))
+        `(program ,e^)))
+
+  (define-language
+    L3-spine-intermediate
+    (extends L3)
+    (Spine (sp)
+      (+ (spine s)))
+    (Expr (e)
+      (+ (let (sp e0) e1))
+      (+ (apply-half sp e))
+      (+ (apply-full sp0 sp1)))
+    (Program (p)
+      (- (program e))
+      (+ (program e))))
+
+  (define-pass embedd-L3-into-L3-spine-intermediate : L3 (e) -> L3-spine-intermediate ()
+     (CondArm : CondArm (ca) -> CondArm ())
+     (Expr : Expr (expr) -> Expr ()
+       [(apply ,e0 ,e1) `(apply ,[Expr e0] ,[Expr e1])]
+       [(lambda ,s ,e) `(lambda ,s ,[Expr e])]
+       [(lambda-rec ,s ,e) `(lambda-rec ,s ,[Expr e])]
+       [(cond (,ca* ...))
+        `(cond (,[map CondArm ca*] ...))])
+    (Program : Program (p) -> Program ()
+      [(program ,e)
+       `(program ,[Expr e])]))
+
+
+  (define-pass introduce-let-spine : L3-spine-intermediate (e) -> L3-spine-intermediate ()
+    (definitions
+      (define spine-counter 0)
+      (with-output-language (L3-spine-intermediate Spine)
+        (define fresh-spine-symbol
+          (lambda ()
+            (let* ([c spine-counter]
+                   [s (string->symbol (format "spine-~s" c))])
+              (set! spine-counter (+ c 1))
+              `(spine ,s))))))
+     (CondArm : CondArm (ca) -> CondArm ())
+     (Expr : Expr (expr) -> Expr ()
+       [(apply-half ,sp0 ,e)
+        (let* ([sp1 (fresh-spine-symbol)])
+          (Expr `(let (,sp1 ,[Expr e]) (apply-full ,sp0 ,sp1))))]
+       [(apply ,e0 ,e1)
+        (let* ([sp (fresh-spine-symbol)])
+          (Expr `(let (,sp ,e0) (apply-half ,sp ,e1))))]
+       [(let (,sp (apply ,e0 ,e1)) ,e2)
+        (let* ([sp0 (fresh-spine-symbol)])
+          (Expr `(let (,sp0 ,e0) (let (,sp (apply-half ,sp0 ,e1)) ,e2))))]
+       [(let (,sp (apply-half ,sp0 ,e1)) ,e2)
+        (let* ([sp1 (fresh-spine-symbol)])
+          (Expr `(let (,sp1 ,e1) (let (,sp (apply-full ,sp0 ,sp1)) ,e2))))]
+       [(let (,sp (apply-full ,sp0 ,sp1)) ,e2)
+        (let ([body (Expr e2)])
+          `(let (,sp (apply-full ,sp0 ,sp1)) ,body))]))
+
+  (define-language
+    L3-spine
+    (extends L3-spine-intermediate)
+    (Spine (sp)
+      (- (spine s)))
+    (Expr (e)
+      (- (let (sp e0) e1))
+      (+ (let (s e0) e1))
+      (- (apply-half sp e))
+      (- (apply-full sp0 sp1))))
+
+  (define-pass translate-L3-spine-intermediate-into-L3-spine : L3-spine-intermediate (e) -> L3-spine ()
+    (Spine : Spine (sp) -> Expr ()
+      [(spine ,s) s])
+    (CondArm : CondArm (ca) -> CondArm ())
+    (Expr : Expr (expr) -> Expr ()
+      [(apply-full ,sp0 ,sp1) `(apply ,[Spine sp0] ,[Spine sp1])]
+      [(apply-half ,sp0 ,e) (void)]
+      [(apply ,e0 ,e1) (void)]
+      [(let (,sp ,e1) ,e2)
+       `(let (,(Spine sp) ,[Expr e1]) ,[Expr e2])]))
+
+  (define-language
+    L3-picked-spine-values
+    (extends L3-spine)
+    (Expr (e)
+      (- (let s e))))
+
+  (define-pass pick-spine-values : L3-spine (e) -> L3-picked-spine-values ()
+    (Expr : Expr (expr env) -> Expr ()
+      [(let (,s1 (let ,s2 ,e1)) ,e2)
+       (let ([env^ (cons (cons s2 s1) env)])
+       `(let (,s1 ,[Expr e1 env^]) ,[Expr e2 env^]))]
+      [,s (cond [(assq s env) => cdr] [else s])]
+      [(let ,s ,e) (Expr e env)])
+    (Program : Program (p) -> Program ()
+      [(program ,e)
+       `(program ,[Expr e '()])]))
+
+  (define-language
+    L3-without-let
+    (extends L3-picked-spine-values)
+    (Expr (e)
+      (- (let (s e0) e1))))
+
+  (define-pass remove-lets : L3-picked-spine-values (e) -> L3-without-let ()
+    (Expr : Expr (expr) -> Expr ()
+      [(let (,s ,e1) ,e2)
+       `(apply (lambda ,s ,[Expr e2]) ,[Expr e1])]))
+
 
   (define (int? e) (eqv? e 'int))
 
   (define-language
     L4
-    (extends L3)
+    (extends L3-without-let)
     (terminals
       (+ (int (int))))
     (Type (t)
@@ -345,7 +489,7 @@
       (+ (scalar n t))
       ))
 
-  (define-pass type-scalars-and-vectors : L3 (e) -> L4 ()
+  (define-pass type-scalars-and-vectors : L3-without-let (e) -> L4 ()
     (Expr : Expr (e) -> Expr ()
       [(vector ,nv) `(vector ,nv (vector int))]
       [(scalar ,n) `(scalar ,n int)]))
@@ -424,9 +568,9 @@
               [env^ (cadr cas-env)])
          (values `(cond (,ca*^ ...) ,[fresh-typevar]) env^))])
     (Program : Program (p) -> Program ()
-      [(program ,e (,s ...))
+      [(program ,e)
        (let-values ([(e^ env) (Expr e '())])
-         `(program ,e^ (,s ...)))]))
+         `(program ,e^))]))
 
   (define-language
     L6
@@ -438,11 +582,9 @@
       (+ (lambda (s t0) e t1))
       (- (lambda-rec s e))
       (+ (lambda-rec (s t0) e t1 t2)))
-    (Global (g)
-      (+ (s t)))
     (Program (p)
-      (- (program e (s* ...)))
-      (+ (program e t (g* ...)))))
+      (- (program e))
+      (+ (program e t))))
 
   (define-pass type-lambda-abstractions : L5 (e) -> L6 ()
     (definitions
@@ -455,9 +597,7 @@
           [(assq s env) => (lambda (st) env)]
           [else (cons `(,s . ,t) env)]))
       (with-output-language (L6 Type)
-        (define (mk-lambda-type t0 t1) `(lambda ,t0 ,t1)))
-      (with-output-language (L6 Global)
-        (define (mk-global-binding st) `(,(car st) ,(cdr st)))))
+        (define (mk-lambda-type t0 t1) `(lambda ,t0 ,t1))))
     (Type : Type (t) -> Type ())
     (CondArm : CondArm (ca env) -> CondArm (env)
       [(,e0 ,e1)
@@ -507,10 +647,9 @@
               [t^ (Type t)])
          (values `(cond (,ca*^ ...) ,t^) t^ env^))])
     (Program : Program (p) -> Program ()
-      [(program ,e (,s* ...))
+      [(program ,e)
        (let-values ([(e^ t env) (Expr e '())])
-         (let ([g* (map mk-global-binding env)])
-           `(program ,e^ ,t (,g* ...))))]))
+         `(program ,e^ ,t))]))
 
   (define (bool? e) (eqv? e 'bool))
 
@@ -525,8 +664,8 @@
       (+ (t0 t1))
       (+ (overloaded t0 (t* ...))))
     (Program (p)
-      (- (program e t (g* ...)))
-      (+ (program e t (g* ...) (c* ...)))))
+      (- (program e t))
+      (+ (program e t (c* ...)))))
 
   (define-pass derive-type-constraints : L6 (e) -> L7 ()
     (definitions
@@ -622,12 +761,11 @@
        (let*-values ([(e^ t^ cs^) (Expr e cs)])
          (let* ([cs^^ (cons (mk-constraint t t^) (append cs^ cs))])
            (values `(else ,e^) cs^^)))])
-    (Global : Global (g) -> Global ())
     (Type : Type (t) -> Type ())
     (Program : Program (p) -> Program ()
-      [(program ,e ,t (,g* ...))
+      [(program ,e ,t)
        (let-values ([(e^ t^ cs) (Expr e '())])
-          `(program ,e^ ,t^ (,(map Global g*) ...) (,[deduplicate cs] ...)))]))
+          `(program ,e^ ,t^ (,[deduplicate cs] ...)))]))
 
   (define (deduplicate xs)
     (fold-right
@@ -705,11 +843,10 @@
       (- (t0 t1))
       (- (overloaded t0 (t* ...))))
     (Program (p)
-      (- (program e t (g* ...) (c* ...)))
-      (+ (program e t (g* ...)))))
+      (- (program e t (c* ...)))
+      (+ (program e t))))
 
    (define-pass unify-and-substitute-types : L7 (ir) -> L8 ()
-     (Global : Global (g sub) -> Global ())
      (CondArm : CondArm (ca sub) -> CondArm ())
      (Type : Type (t sub) -> Type ()
        [(lambda ,t0 ,t1) `(lambda ,(Type t0 sub) ,(Type t1 sub))]
@@ -722,11 +859,11 @@
          [else t]))
      (Expr : Expr (e sub) -> Expr ())
      (Program : Program (p) -> Program ()
-       [(program ,e ,t (,g* ...) (,c* ...))
+       [(program ,e ,t (,c* ...))
         (let ([cs (map unparse-L7 c*)])
          (cond
            [(unify cs) => (lambda (sub)
-            `(program ,(Expr e sub) ,(Type t sub) (,(map (lambda (g) (Global sub g)) g*) ...)))]
+            `(program ,(Expr e sub) ,(Type t sub)))]
            [else (error 'unify-and-substitute-types "unable to unify types" cs)]
           ))]))
 
@@ -892,11 +1029,11 @@
            [else (error 'type-check "type error in cond-arm, else body's type does not conform"
                         (unparse-L8 e^) t^ t)]))])
     (Program : Program (p) -> Program ()
-      [(program ,e ,t (,g* ...))
+      [(program ,e ,t)
        (let-values ([(e^ t^) (Expr e '())]) ; TOOD: populate the ctx using the globals (or refactor out the globals)
          (let ([ut (unwrap-Type t)])
            (cond
-             [(equal? ut t^) `(program ,e^ ,t (,g* ...))]
+             [(equal? ut t^) `(program ,e^ ,t)]
              [else (error 'type-check "type error in program" (list e ut) (list e^ t^))])))]))
 
   (define-language
@@ -925,15 +1062,11 @@
       (+ (lambda-rec (s) e))
       (- (cond (ca* ...) t))
       (+ (cond (ca* ...))))
-    (Global (g)
-      (- (s t)))
     (Program (p)
-      (- (program e t (g* ...)))
-      (+ (program e (s* ...)))))
+      (- (program e t))
+      (+ (program e))))
 
   (define-pass untype : L8 (e) -> L9 ()
-    (Global : Global (g) -> Expr ()
-      [(,s ,t) s])
     (CondArm : CondArm (ca) -> CondArm ())
     (Expr : Expr (e) -> Expr ()
       [(,s ,t) s]
@@ -945,8 +1078,8 @@
       [(lambda-rec (,s ,t0) ,e ,t1 ,t2) `(lambda-rec (,s) ,[Expr e])]
       [(cond (,ca* ...) ,t) `(cond (,[map CondArm ca*] ...))])
     (Program : Program (p) -> Program ()
-      [(program ,e ,t (,g* ...))
-       `(program ,(Expr e) (,[map Global g*] ...))]))
+      [(program ,e ,t)
+       `(program ,(Expr e))]))
 
 
   (define-pass output-scheme : L9 (e) -> * ()
@@ -1003,7 +1136,7 @@
       [(lambda-rec (,s) ,e) `(letrec ((,self (lambda (,s) ,[Expr e]))) ,self)]
       [(cond (,ca* ...)) `(cond . ,[map CondArm ca*])])
     (Program : Program (p) -> * ()
-      [(program ,e (,s* ...)) (Expr e)]))
+      [(program ,e) (Expr e)]))
 
 
   (define-pass output-malfunction : L9 (e) -> * ()
@@ -1117,7 +1250,7 @@
          (go (map CondArm ca*)))]
       [else (error 'output-malfunction "unsupported expr" e)])
     (Program : Program (p) -> * ()
-      [(program ,e (,s* ...))
+      [(program ,e)
        `(module
           ($match_error (lambda ($u) ,[mlf-error "match error" 3]))
           ($length_error (lambda ($u) ,[mlf-error "length error" 4]))
@@ -1134,27 +1267,6 @@
           (export))
        ]))
 
-  (define (id x) x)
-
-  (define passes
-    '((parse-silly-k                 . id)
-      (ast-to-Lsrc                   . unparse-Lsrc)
-      (differentiate-scalars         . unparse-L1)
-      (translate-to-primfuns         . unparse-L2)
-      (introduce-lambda-abstractions . unparse-L3)
-      (type-scalars-and-vectors      . unparse-L4)
-      (introduce-fresh-typevars      . unparse-L5)
-      (type-lambda-abstractions      . unparse-L6)
-      (derive-type-constraints       . unparse-L7)
-      (unify-and-substitute-types    . unparse-L8)
-      (type-check                    . unparse-L8)
-      (expand-idioms                 . unparse-L8)
-      (type-check                    . unparse-L8)
-      (untype                        . unparse-L9)
-      ;(output-scheme                 . id)
-      (output-malfunction            . id)
-      ))
-
   (define (compiler-frontend)
     (untype
       (expand-idioms
@@ -1163,11 +1275,17 @@
             (type-lambda-abstractions
               (introduce-fresh-typevars
                 (type-scalars-and-vectors
-                  (introduce-lambda-abstractions
-                    (translate-to-primfuns
-                      (differentiate-scalars
-                        (ast-to-Lsrc
-                          (parse-silly-k)))))))))))))
+                  (remove-lets
+                    (pick-spine-values
+                      (translate-L3-spine-intermediate-into-L3-spine
+                        (introduce-let-spine
+                          (embedd-L3-into-L3-spine-intermediate
+                            (introduce-lambda-abstractions
+                              (translate-to-primfuns
+                                (differentiate-scalars
+                                  (ast-to-Lsrc
+                                    (parse-silly-k))))))))))))))))))
+
 
   (define (compile-to-malfunction)
     (output-malfunction (compiler-frontend)))
