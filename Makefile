@@ -1,7 +1,10 @@
+.PHONY: repl
+repl:
+	./repl
+
 .PHONY: scheme
 scheme:
 	scheme --libdirs .:nanopass-framework-scheme:lalr-scm
-
 
 RUN_TESTS=scheme --libdirs .:nanopass-framework-scheme:lalr-scm --compile-imported-libraries --optimize-level 3 --program tests.scm
 .PHONY: test
