@@ -17,6 +17,13 @@ using the following structure:
   [Scheme](https://en.wikipedia.org/wiki/Scheme_(programming_language)) (which is used mainly for
   quick tests and the REPL).
 
+## Usage
+Easiest way to play around with it is to run the [Docker image](https://hub.docker.com/r/rootmos/silly-k/):
+```
+docker run --rm -it rootmos/silly-k
+```
+which starts the REPL.
+
 ## Examples
 Here's some examples of the syntax (taken directly from the [tests](https://github.com/rootmos/silly-k/blob/master/tests.scm)
 
