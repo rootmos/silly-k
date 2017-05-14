@@ -109,6 +109,8 @@
             [(char=? c #\])       (make-lexical-token 'RBRACKET location #f)]
             [(char=? c #\[)       (make-lexical-token 'LBRACKET location #f)]
             [(char=? c #\|)       (make-lexical-token 'PIPE location #f)]
+            [(char=? c #\<)       (make-lexical-token 'LESS location #f)]
+            [(char=? c #\>)       (make-lexical-token 'MORE location #f)]
             [(char=? c #\&)       (make-lexical-token 'AMPERSAND location #f)]
             [(char=? c #\~)       (make-lexical-token 'TILDE location #f)]
             [(char=? c #\*)       (make-lexical-token 'STAR location #f)]
@@ -128,7 +130,8 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
-                 UNDERSCORE PIPE AMPERSAND TILDE STAR)
+                 UNDERSCORE PIPE AMPERSAND TILDE STAR
+                 LESS MORE)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -152,6 +155,8 @@
                       (AMPERSAND) : 'min
                       (TILDE) : 'negation
                       (STAR) : 'star
+                      (LESS) : 'less
+                      (MORE) : 'more
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -172,7 +177,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal max min negation star))))))
+      (not (not (memq x '(plus minus colon equal max min negation star less more))))))
 
   (define adverb?
     (lambda (x)
@@ -275,6 +280,8 @@
       (over . reduce)
       (min . min)
       (max . max)
+      (less . less)
+      (more . more)
       (negation . negation)
       (star . star)
       (0 . input-vector)
@@ -721,6 +728,8 @@
                                       `(lambda (vector int) (lambda int (vector int)))
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'equal        `(lambda int (lambda int bool)))
+            (cons 'less         `(lambda int (lambda int bool)))
+            (cons 'more         `(lambda int (lambda int bool)))
             (cons 'min          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
             (cons 'max          (list `(lambda bool (lambda bool bool))
@@ -1143,6 +1152,8 @@
          [(equal? pf 'multiplication) '(lambda (y) (lambda (x) (* x y)))]
          [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
          [(equal? pf 'equal) '(lambda (y) (lambda (x) (= x y)))]
+         [(equal? pf 'less) '(lambda (y) (lambda (x) (< x y)))]
+         [(equal? pf 'more) '(lambda (y) (lambda (x) (> x y)))]
          [(equal? pf 'and) '(lambda (y) (lambda (x) (and x y)))]
          [(equal? pf 'or) '(lambda (y) (lambda (x) (or x y)))]
          [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
@@ -1280,6 +1291,10 @@
           `(lambda ($y $x) (* $x $y))]
          [(equal? pf 'equal)
           `(lambda ($y $x) (== $x $y))]
+         [(equal? pf 'less)
+          `(lambda ($y $x) (< $x $y))]
+         [(equal? pf 'more)
+          `(lambda ($y $x) (> $x $y))]
          [(equal? pf 'and) '$min]
          [(equal? pf 'or) '$max]
          [(equal? pf 'min) '$min]
