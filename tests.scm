@@ -45,6 +45,8 @@
     (make-test-case "mult04"     "]1 2*3 4"                           #f                 "3 8")
     (make-test-case "over01"     "]@{w+1}'1 2 3"                      #f                 "2 3 4")
     (make-test-case "over02"     "]@{1-w}'3 4 5"                      #f                 "-2 -3 -4")
+    (make-test-case "over03"     "]2{a+w}'3 4 5"                      #f                 "5 6 7")
+    (make-test-case "over04"     "]2{w-a}'3 4 5"                      #f                 "1 2 3")
     (make-test-case "reduce01"   "]@+/1 2 3"                          #f                 "6")
     (make-test-case "reduce02"   "]@-/1 2 3"                          #f                 "2")
     (make-test-case "reduce03"   "]@{w-a}/1 2 3"                      #f                 "0")

@@ -710,10 +710,18 @@
             (cons 'display      (list `(lambda int int)
                                       `(lambda (vector int) (vector int))
                                       `(lambda bool bool)))
-            (cons 'map          (lambda ()
-                                  (let ([a (fresh-typevar)]
-                                        [b (fresh-typevar)])
-                                    `(lambda (lambda ,a ,b) (lambda (vector ,a) (vector ,b))))))
+            (cons 'map          (list (lambda ()
+                                        (let ([a (fresh-typevar)]
+                                              [b (fresh-typevar)])
+                                          `(lambda (lambda ,a ,b)
+                                             (lambda (vector ,a) (vector ,b)))))
+                                      (lambda ()
+                                        (let ([a (fresh-typevar)]
+                                              [b (fresh-typevar)]
+                                              [c (fresh-typevar)])
+                                          `(lambda (lambda ,a (lambda ,b ,c))
+                                             (lambda (vector ,a)
+                                             (lambda ,b (vector ,c))))))))
             (cons 'reduce       (lambda ()
                                   (let ([a (fresh-typevar)])
                                     `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a)))))
@@ -737,10 +745,15 @@
             (cons 'negation     (list `(lambda bool bool)
                                       `(lambda int bool)))
             )))
+      (define (fresh-type-instance t)
+        (cond
+          [(procedure? t) (t)]
+          [else t]))
       (with-output-language (L7 Constraint)
         (define (mk-bool-constraint t) `(,t bool))
         (define (mk-constraint t0 t1) `(,t0 ,t1))
-        (define (mk-overloading t0 t*) `(overloaded ,t0 (,t* ...)))))
+        (define (mk-overloading t0 t*)
+          `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -1005,10 +1018,37 @@
             `(primfun or ,t^)]
            [(and (equal? pf 'star) (equal? '(lambda int (lambda int int)) t^))
             `(primfun multiplication ,t^)]
+           ; TODO: use unify to match the polymorphic type
+           [(and (equal? pf 'map) (equal? '(lambda (lambda int (lambda int int))
+                                             (lambda (vector int)
+                                               (lambda int (vector int)))) t^))
+            `(lambda (f (lambda int (lambda int int)))
+               (lambda (rs (vector int))
+                 (lambda (l int)
+                   (apply
+                     (apply
+                       (primfun map (lambda (lambda int int)
+                                      (lambda (vector int) (vector int))))
+                       (lambda (r int)
+                         (apply
+                           (apply
+                             (f (lambda int (lambda int int)))
+                             (r int)
+                             (lambda int int))
+                           (l int)
+                           int)
+                         (lambda int int))
+                       (lambda (vector int) (vector int)))
+                     (rs (vector int))
+                     (vector int))
+                   (lambda int (vector int)))
+                 (lambda (vector int) (lambda int (vector int))))
+               (lambda (lambda int (lambda int int))
+                 (lambda (vector int) (lambda int (vector int)))))]
            [else e]))]
       ))
 
-  (define-pass type-check  : L8 (e) -> L8 ()
+  (define-pass type-check : L8 (e) -> L8 ()
     (unwrap-Type : Type (t) -> * ()
       [(vector ,t) `(vector ,t)]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
