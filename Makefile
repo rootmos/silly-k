@@ -1,6 +1,6 @@
 .PHONY: repl
 repl:
-	./repl
+	rlwrap ./repl
 
 .PHONY: scheme
 scheme:
