@@ -5,6 +5,9 @@
 (define test-cases
   (list
     (make-test-case "mult01"     "]2*3"                               #f                 "6")
+    (make-test-case "mult02"     "]1 2*3"                             #f                 "3 6")
+    (make-test-case "mult03"     "]4*2 3"                             #f                 "8 12")
+    (make-test-case "mult04"     "]1 2*3 4"                           #f                 "3 8")
     (make-test-case "number01"   "]7"                                 #f                 "7")
     (make-test-case "number02"   "]1 2 3"                             #f                 "1 2 3")
     (make-test-case "bool01"     "]1=2"                               #f                 "0")
@@ -32,6 +35,8 @@
     (make-test-case "minus03"    "]1 2-3 4"                           #f                 "-2 -2")
     (make-test-case "minus04"    "]@-7"                               #f                 "-7")
     (make-test-case "minus05"    "]@-(-2)"                            #f                 "2")
+    (make-test-case "minus06"    "]1-2 3"                             #f                 "-1 -2")
+    (make-test-case "minus07"    "]1 2-3"                             #f                 "-2 -1")
     (make-test-case "over01"     "]@{w+1}'1 2 3"                      #f                 "2 3 4")
     (make-test-case "over02"     "]@{1-w}'3 4 5"                      #f                 "-2 -3 -4")
     (make-test-case "reduce01"   "]@+/1 2 3"                          #f                 "6")

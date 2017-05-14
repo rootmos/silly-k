@@ -713,8 +713,13 @@
             (cons 'minus        (list
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
+                                  `(lambda int (lambda (vector int) (vector int)))
+                                  `(lambda (vector int) (lambda int (vector int)))
                                   `(lambda (vector int) (lambda (vector int) (vector int)))))
-            (cons 'star         (list `(lambda int (lambda int int))))
+            (cons 'star         (list `(lambda int (lambda int int))
+                                      `(lambda int (lambda (vector int) (vector int)))
+                                      `(lambda (vector int) (lambda int (vector int)))
+                                      `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'equal        `(lambda int (lambda int bool)))
             (cons 'min          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
@@ -907,64 +912,75 @@
                    (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
                  (scalar 0 int) int) (lambda int int))]
            ; 1 2 3+4 -> {w+4}'1 2 3
-           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
-            `(lambda (x int)
-               (lambda (xs (vector int))
-                 (apply
-                   (apply
-                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                     (lambda (y int)
-                       (apply
-                         (apply
-                           (primfun plus (lambda int (lambda int int)))
-                           (x int)
-                           (lambda int int))
-                         (y int)
-                         int)
-                     (lambda int int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda (vector int) (vector int)))
-               (lambda int (lambda (vector int) (vector int))))]
-           ; 1+2 3 -> 3 4
-           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
-            `(lambda (xs (vector int))
-               (lambda (x int)
-                 (apply
-                   (apply
-                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                     (lambda (y int)
-                       (apply
-                         (apply
-                           (primfun plus (lambda int (lambda int int)))
-                           (y int)
-                           (lambda int int))
-                         (x int)
-                         int)
-                       (lambda int int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda int (vector int)))
-               (lambda (vector int) (lambda int (vector int))))]
-           ; 1 2+3 4 or 1 2-3 4
-           [(and (or (equal? pf 'plus) (equal? pf 'minus))
-                 (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
-            `(lambda (ys (vector int))
-               (lambda (xs (vector int))
-                 (apply
+           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus))
+                 (equal? '(lambda int (lambda (vector int) (vector int))) t^))
+            (let ([pf^ (cond
+                         [(equal? pf 'star) 'multiplication]
+                         [else pf])])
+              `(lambda (x int)
+                 (lambda (xs (vector int))
                    (apply
                      (apply
-                       (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
-                       (primfun ,pf (lambda int (lambda int int)))
-                       (lambda (vector int) (lambda (vector int) (vector int))))
-                     (ys (vector int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda (vector int) (vector int)))
-               (lambda (vector int) (lambda (vector int) (vector int))))]
+                       (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+                       (lambda (y int)
+                         (apply
+                           (apply
+                             (primfun ,pf^ (lambda int (lambda int int)))
+                             (x int)
+                             (lambda int int))
+                           (y int)
+                           int)
+                         (lambda int int))
+                       (lambda (vector int) (vector int)))
+                     (xs (vector int))
+                     (vector int))
+                   (lambda (vector int) (vector int)))
+                 (lambda int (lambda (vector int) (vector int)))))]
+           ; 1+2 3 -> 3 4
+           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus))
+                 (equal? '(lambda (vector int) (lambda int (vector int))) t^))
+            (let ([pf^ (cond
+                         [(equal? pf 'star) 'multiplication]
+                         [else pf])])
+              `(lambda (xs (vector int))
+                 (lambda (x int)
+                   (apply
+                     (apply
+                       (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+                       (lambda (y int)
+                         (apply
+                           (apply
+                             (primfun ,pf^ (lambda int (lambda int int)))
+                             (y int)
+                             (lambda int int))
+                           (x int)
+                           int)
+                         (lambda int int))
+                       (lambda (vector int) (vector int)))
+                     (xs (vector int))
+                     (vector int))
+                   (lambda int (vector int)))
+                 (lambda (vector int) (lambda int (vector int)))))]
+           ; 1 2+3 4 or 1 2-3 4
+           [(and (or (equal? pf 'plus) (equal? pf 'minus) (equal? pf 'star))
+                 (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
+            (let ([pf^ (cond
+                         [(equal? pf 'star) 'multiplication]
+                         [else pf])])
+              `(lambda (ys (vector int))
+                 (lambda (xs (vector int))
+                   (apply
+                     (apply
+                       (apply
+                         (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
+                         (primfun ,pf^ (lambda int (lambda int int)))
+                         (lambda (vector int) (lambda (vector int) (vector int))))
+                       (ys (vector int))
+                       (lambda (vector int) (vector int)))
+                     (xs (vector int))
+                     (vector int))
+                   (lambda (vector int) (vector int)))
+                 (lambda (vector int) (lambda (vector int) (vector int)))))]
            [(equal? pf 'display)
             (cond
               [(equal? '(lambda int int) t^)
