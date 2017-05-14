@@ -4,7 +4,7 @@ RUN mkdir /silly-k
 WORKDIR /silly-k
 
 RUN apt-get update
-RUN apt-get install -y opam
+RUN apt-get install -y opam rlwrap
 
 RUN opam init
 RUN opam switch 4.03.0+flambda

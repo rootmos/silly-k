@@ -1,5 +1,5 @@
 # silly-k
-![Build status](https://travis-ci.org/rootmos/silly-k.svg?branch=master)
+[![Build status](https://travis-ci.org/rootmos/silly-k.svg?branch=master)](https://travis-ci.org/rootmos/silly-k)
 
 `silly-k` is an experimental hobby language inspired by [K](http://kparc.com/)
 and [APL](https://en.wikipedia.org/wiki/APL_(programming_language)).
@@ -11,7 +11,7 @@ The compiler is written for the [nanopass framework](https://github.com/nanopass
 using the following structure:
 * the `K`-like, `APL` inspired, syntax is translated into something like
   [simply typed lambda calculus](https://en.wikipedia.org/wiki/Simply_typed_lambda_calculus)
-  which is used to resolve the very overloaded symbols from `K`
+  which is used to resolve the overloaded symbols from K,
 * after that, the types are thrown away and is compiled to
   [Malfunction](https://github.com/stedolan/malfunction) or to
   [Scheme](https://en.wikipedia.org/wiki/Scheme_(programming_language)) (which is used mainly for
@@ -31,6 +31,28 @@ Code | Stdin | Stdout
 ---- | ----- | ------
 `]7` | | `7`
 `]1 2 3` | | `1 2 3`
+`]1=2` | | `0`
+`]2=2` | | `1`
+`]2<3` | | `1`
+`]2<2` | | `0`
+`]3<2` | | `0`
+`]2>3` | | `0`
+`]2>2` | | `0`
+`]3>2` | | `1`
+`]~(1=2)` | | `1`
+`]~(2=2)` | | `0`
+`]~0` | | `1`
+`]~7` | | `0`
+`](1=2)\|(2=3)` | | `0`
+`](1=2)\|(2=2)` | | `1`
+`](2=2)\|(2=3)` | | `1`
+`](2=2)\|(3=3)` | | `1`
+`](1=2)&(2=3)` | | `0`
+`](1=2)&(2=2)` | | `0`
+`](2=2)&(2=3)` | | `0`
+`](2=2)&(3=3)` | | `1`
+`]2&3` | | `2`
+`]2\|3` | | `3`
 `]1+2` | | `3`
 `]1+2 3` | | `3 4`
 `]1 2+3 4` | | `4 6`
@@ -38,10 +60,16 @@ Code | Stdin | Stdout
 `]2-3` | | `-1`
 `]1-(-2)` | | `3`
 `]1 2-3 4` | | `-2 -2`
-`]@{w+1}'1 2 3` | | `2 3 4`
-`]@{1-w}'3 4 5` | | `-2 -3 -4`
 `]@-7` | | `-7`
 `]@-(-2)` | | `2`
+`]1-2 3` | | `-1 -2`
+`]1 2-3` | | `-2 -1`
+`]2*3` | | `6`
+`]1 2*3` | | `3 6`
+`]4*2 3` | | `8 12`
+`]1 2*3 4` | | `3 8`
+`]@{w+1}'1 2 3` | | `2 3 4`
+`]@{1-w}'3 4 5` | | `-2 -3 -4`
 `]@+/1 2 3` | | `6`
 `]@-/1 2 3` | | `2`
 `]@{w-a}/1 2 3` | | `0`

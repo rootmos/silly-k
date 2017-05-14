@@ -108,6 +108,12 @@
             [(char=? c #\})       (make-lexical-token 'RBRACE location #f)]
             [(char=? c #\])       (make-lexical-token 'RBRACKET location #f)]
             [(char=? c #\[)       (make-lexical-token 'LBRACKET location #f)]
+            [(char=? c #\|)       (make-lexical-token 'PIPE location #f)]
+            [(char=? c #\<)       (make-lexical-token 'LESS location #f)]
+            [(char=? c #\>)       (make-lexical-token 'MORE location #f)]
+            [(char=? c #\&)       (make-lexical-token 'AMPERSAND location #f)]
+            [(char=? c #\~)       (make-lexical-token 'TILDE location #f)]
+            [(char=? c #\*)       (make-lexical-token 'STAR location #f)]
             [(char=? c #\@)       (make-lexical-token 'AT location #f)]
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
@@ -124,7 +130,8 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
-                 UNDERSCORE)
+                 UNDERSCORE PIPE AMPERSAND TILDE STAR
+                 LESS MORE)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -144,6 +151,12 @@
                 (verb (PLUS) : 'plus
                       (MINUS) : 'minus
                       (EQUAL) : 'equal
+                      (PIPE) : 'max
+                      (AMPERSAND) : 'min
+                      (TILDE) : 'negation
+                      (STAR) : 'star
+                      (LESS) : 'less
+                      (MORE) : 'more
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -164,7 +177,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal))))))
+      (not (not (memq x '(plus minus colon equal max min negation star less more))))))
 
   (define adverb?
     (lambda (x)
@@ -265,11 +278,18 @@
       (equal . equal)
       (each . map)
       (over . reduce)
+      (min . min)
+      (max . max)
+      (less . less)
+      (more . more)
+      (negation . negation)
+      (star . star)
       (0 . input-vector)
       (1 . input-scalar)
       (3 . display)
       (4 . output-vector)
-      (5 . output-scalar)))
+      (5 . output-scalar)
+      (6 . output-bool)))
 
   (define primfun?
     (lambda (x)
@@ -687,7 +707,9 @@
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'input-vector `(vector int))
             (cons 'input-scalar 'int)
-            (cons 'display      (list `(lambda int int) `(lambda (vector int) (vector int))))
+            (cons 'display      (list `(lambda int int)
+                                      `(lambda (vector int) (vector int))
+                                      `(lambda bool bool)))
             (cons 'map          (lambda ()
                                   (let ([a (fresh-typevar)]
                                         [b (fresh-typevar)])
@@ -698,8 +720,22 @@
             (cons 'minus        (list
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
+                                  `(lambda int (lambda (vector int) (vector int)))
+                                  `(lambda (vector int) (lambda int (vector int)))
                                   `(lambda (vector int) (lambda (vector int) (vector int)))))
+            (cons 'star         (list `(lambda int (lambda int int))
+                                      `(lambda int (lambda (vector int) (vector int)))
+                                      `(lambda (vector int) (lambda int (vector int)))
+                                      `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'equal        `(lambda int (lambda int bool)))
+            (cons 'less         `(lambda int (lambda int bool)))
+            (cons 'more         `(lambda int (lambda int bool)))
+            (cons 'min          (list `(lambda bool (lambda bool bool))
+                                      `(lambda int (lambda int int))))
+            (cons 'max          (list `(lambda bool (lambda bool bool))
+                                      `(lambda int (lambda int int))))
+            (cons 'negation     (list `(lambda bool bool)
+                                      `(lambda int bool)))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-bool-constraint t) `(,t bool))
@@ -885,71 +921,90 @@
                    (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
                  (scalar 0 int) int) (lambda int int))]
            ; 1 2 3+4 -> {w+4}'1 2 3
-           [(and (equal? pf 'plus) (equal? '(lambda int (lambda (vector int) (vector int))) t^))
-            `(lambda (x int)
-               (lambda (xs (vector int))
-                 (apply
-                   (apply
-                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                     (lambda (y int)
-                       (apply
-                         (apply
-                           (primfun plus (lambda int (lambda int int)))
-                           (x int)
-                           (lambda int int))
-                         (y int)
-                         int)
-                     (lambda int int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda (vector int) (vector int)))
-               (lambda int (lambda (vector int) (vector int))))]
-           ; 1+2 3 -> 3 4
-           [(and (equal? pf 'plus) (equal? '(lambda (vector int) (lambda int (vector int))) t^))
-            `(lambda (xs (vector int))
-               (lambda (x int)
-                 (apply
-                   (apply
-                     (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                     (lambda (y int)
-                       (apply
-                         (apply
-                           (primfun plus (lambda int (lambda int int)))
-                           (y int)
-                           (lambda int int))
-                         (x int)
-                         int)
-                       (lambda int int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda int (vector int)))
-               (lambda (vector int) (lambda int (vector int))))]
-           ; 1 2+3 4 or 1 2-3 4
-           [(and (or (equal? pf 'plus) (equal? pf 'minus))
-                 (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
-            `(lambda (ys (vector int))
-               (lambda (xs (vector int))
-                 (apply
+           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus))
+                 (equal? '(lambda int (lambda (vector int) (vector int))) t^))
+            (let ([pf^ (cond
+                         [(equal? pf 'star) 'multiplication]
+                         [else pf])])
+              `(lambda (x int)
+                 (lambda (xs (vector int))
                    (apply
                      (apply
-                       (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
-                       (primfun ,pf (lambda int (lambda int int)))
-                       (lambda (vector int) (lambda (vector int) (vector int))))
-                     (ys (vector int))
-                     (lambda (vector int) (vector int)))
-                   (xs (vector int))
-                   (vector int))
-                 (lambda (vector int) (vector int)))
-               (lambda (vector int) (lambda (vector int) (vector int))))]
+                       (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+                       (lambda (y int)
+                         (apply
+                           (apply
+                             (primfun ,pf^ (lambda int (lambda int int)))
+                             (x int)
+                             (lambda int int))
+                           (y int)
+                           int)
+                         (lambda int int))
+                       (lambda (vector int) (vector int)))
+                     (xs (vector int))
+                     (vector int))
+                   (lambda (vector int) (vector int)))
+                 (lambda int (lambda (vector int) (vector int)))))]
+           ; 1+2 3 -> 3 4
+           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus))
+                 (equal? '(lambda (vector int) (lambda int (vector int))) t^))
+            (let ([pf^ (cond
+                         [(equal? pf 'star) 'multiplication]
+                         [else pf])])
+              `(lambda (xs (vector int))
+                 (lambda (x int)
+                   (apply
+                     (apply
+                       (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
+                       (lambda (y int)
+                         (apply
+                           (apply
+                             (primfun ,pf^ (lambda int (lambda int int)))
+                             (y int)
+                             (lambda int int))
+                           (x int)
+                           int)
+                         (lambda int int))
+                       (lambda (vector int) (vector int)))
+                     (xs (vector int))
+                     (vector int))
+                   (lambda int (vector int)))
+                 (lambda (vector int) (lambda int (vector int)))))]
+           ; 1 2+3 4 or 1 2-3 4
+           [(and (or (equal? pf 'plus) (equal? pf 'minus) (equal? pf 'star))
+                 (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
+            (let ([pf^ (cond
+                         [(equal? pf 'star) 'multiplication]
+                         [else pf])])
+              `(lambda (ys (vector int))
+                 (lambda (xs (vector int))
+                   (apply
+                     (apply
+                       (apply
+                         (primfun zip (lambda (lambda int (lambda int int)) (lambda (vector int) (lambda (vector int) (vector int)))))
+                         (primfun ,pf^ (lambda int (lambda int int)))
+                         (lambda (vector int) (lambda (vector int) (vector int))))
+                       (ys (vector int))
+                       (lambda (vector int) (vector int)))
+                     (xs (vector int))
+                     (vector int))
+                   (lambda (vector int) (vector int)))
+                 (lambda (vector int) (lambda (vector int) (vector int)))))]
            [(equal? pf 'display)
             (cond
               [(equal? '(lambda int int) t^)
                `(primfun output-scalar (lambda int int))]
               [(equal? '(lambda (vector int) (vector int)) t^)
                `(primfun output-vector (lambda (vector int) (vector int)))]
+              [(equal? '(lambda bool bool) t^)
+               `(primfun output-bool (lambda bool bool))]
               [else (error 'expand-idioms "displaying unsupported type" t^)])]
+           [(and (equal? pf 'min) (equal? '(lambda bool (lambda bool bool)) t^))
+            `(primfun and ,t^)]
+           [(and (equal? pf 'max) (equal? '(lambda bool (lambda bool bool)) t^))
+            `(primfun or ,t^)]
+           [(and (equal? pf 'star) (equal? '(lambda int (lambda int int)) t^))
+            `(primfun multiplication ,t^)]
            [else e]))]
       ))
 
@@ -1094,8 +1149,16 @@
        (cond
          [(equal? pf 'minus) '(lambda (y) (lambda (x) (- x y)))]
          [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
+         [(equal? pf 'multiplication) '(lambda (y) (lambda (x) (* x y)))]
          [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
          [(equal? pf 'equal) '(lambda (y) (lambda (x) (= x y)))]
+         [(equal? pf 'less) '(lambda (y) (lambda (x) (< x y)))]
+         [(equal? pf 'more) '(lambda (y) (lambda (x) (> x y)))]
+         [(equal? pf 'and) '(lambda (y) (lambda (x) (and x y)))]
+         [(equal? pf 'or) '(lambda (y) (lambda (x) (or x y)))]
+         [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
+         [(equal? pf 'max) '(lambda (y) (lambda (x) (max x y)))]
+         [(equal? pf 'negation) '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1130,6 +1193,8 @@
                                         [else (display " ") (print-vector tail)])))])
                (print-vector x))
              x)]
+         [(equal? pf 'output-bool)
+          '(lambda (b) (display (if b 1 0)) b)]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
@@ -1164,6 +1229,11 @@
                           ,malfunction-print-space
                           ,mlf-unit)))
                     $l))))
+      (define mlf-write-bool-lambda
+        `(lambda ($b)
+           (switch $b
+             (0 (apply $write_scalar 0))
+             (_ (apply $write_scalar 1)))))
       (define malfunction-map-lambda
         `(lambda ($f $v)
            (apply (global $Array $map) $f $v)))
@@ -1217,8 +1287,19 @@
           `(lambda ($y $x) (- $x $y))]
          [(equal? pf 'plus)
           `(lambda ($x $y) (+ $x $y))]
+         [(equal? pf 'multiplication)
+          `(lambda ($y $x) (* $x $y))]
          [(equal? pf 'equal)
           `(lambda ($y $x) (== $x $y))]
+         [(equal? pf 'less)
+          `(lambda ($y $x) (< $x $y))]
+         [(equal? pf 'more)
+          `(lambda ($y $x) (> $x $y))]
+         [(equal? pf 'and) '$min]
+         [(equal? pf 'or) '$max]
+         [(equal? pf 'min) '$min]
+         [(equal? pf 'max) '$max]
+         [(equal? pf 'negation) '$not]
          [(equal? pf 'map)
            `(lambda ($f $xs) (apply $map $f $xs))]
          [(equal? pf 'reduce)
@@ -1233,6 +1314,8 @@
           '$write_scalar]
          [(equal? pf 'output-vector)
           '$write_vector]
+         [(equal? pf 'output-bool)
+          '$write_bool]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1262,6 +1345,10 @@
           ($read_vector ,malfunction-read-vector-lambda)
           ($write_scalar ,mlf-write-scalar-lambda)
           ($write_vector ,mlf-write-vector-lambda)
+          ($write_bool ,mlf-write-bool-lambda)
+          ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
+          ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
+          ($not (lambda ($x) (switch $x (0 1) (_ 0))))
           (_ ,[Expr e])
           (_ ,malfunction-print-newline)
           (export))
