@@ -110,6 +110,7 @@
             [(char=? c #\[)       (make-lexical-token 'LBRACKET location #f)]
             [(char=? c #\|)       (make-lexical-token 'PIPE location #f)]
             [(char=? c #\&)       (make-lexical-token 'AMPERSAND location #f)]
+            [(char=? c #\~)       (make-lexical-token 'TILDE location #f)]
             [(char=? c #\@)       (make-lexical-token 'AT location #f)]
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
@@ -126,7 +127,7 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
-                 UNDERSCORE PIPE AMPERSAND)
+                 UNDERSCORE PIPE AMPERSAND TILDE)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -148,6 +149,7 @@
                       (EQUAL) : 'equal
                       (PIPE) : 'max
                       (AMPERSAND) : 'min
+                      (TILDE) : 'negation
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -168,7 +170,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal max min))))))
+      (not (not (memq x '(plus minus colon equal max min negation))))))
 
   (define adverb?
     (lambda (x)
@@ -271,6 +273,7 @@
       (over . reduce)
       (min . min)
       (max . max)
+      (negation . negation)
       (0 . input-vector)
       (1 . input-scalar)
       (3 . display)
@@ -713,6 +716,7 @@
                                       `(lambda int (lambda int int))))
             (cons 'max          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
+            (cons 'negation     `(lambda bool bool))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-bool-constraint t) `(,t bool))
@@ -1119,6 +1123,7 @@
          [(equal? pf 'or) '(lambda (y) (lambda (x) (or x y)))]
          [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
          [(equal? pf 'max) '(lambda (y) (lambda (x) (max x y)))]
+         [(equal? pf 'negation) 'not]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1253,6 +1258,7 @@
          [(equal? pf 'or) '$max]
          [(equal? pf 'min) '$min]
          [(equal? pf 'max) '$max]
+         [(equal? pf 'negation) '$not]
          [(equal? pf 'map)
            `(lambda ($f $xs) (apply $map $f $xs))]
          [(equal? pf 'reduce)
@@ -1301,6 +1307,7 @@
           ($write_bool ,mlf-write-bool-lambda)
           ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
           ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
+          ($not (lambda ($x) (switch $x (0 1) (_ 0))))
           (_ ,[Expr e])
           (_ ,malfunction-print-newline)
           (export))
