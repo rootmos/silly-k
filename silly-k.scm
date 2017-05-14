@@ -108,6 +108,8 @@
             [(char=? c #\})       (make-lexical-token 'RBRACE location #f)]
             [(char=? c #\])       (make-lexical-token 'RBRACKET location #f)]
             [(char=? c #\[)       (make-lexical-token 'LBRACKET location #f)]
+            [(char=? c #\|)       (make-lexical-token 'PIPE location #f)]
+            [(char=? c #\&)       (make-lexical-token 'AMPERSAND location #f)]
             [(char=? c #\@)       (make-lexical-token 'AT location #f)]
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
@@ -124,7 +126,7 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
-                 UNDERSCORE)
+                 UNDERSCORE PIPE AMPERSAND)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -144,6 +146,8 @@
                 (verb (PLUS) : 'plus
                       (MINUS) : 'minus
                       (EQUAL) : 'equal
+                      (PIPE) : 'max
+                      (AMPERSAND) : 'min
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -164,7 +168,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal))))))
+      (not (not (memq x '(plus minus colon equal max min))))))
 
   (define adverb?
     (lambda (x)
@@ -265,11 +269,14 @@
       (equal . equal)
       (each . map)
       (over . reduce)
+      (min . min)
+      (max . max)
       (0 . input-vector)
       (1 . input-scalar)
       (3 . display)
       (4 . output-vector)
-      (5 . output-scalar)))
+      (5 . output-scalar)
+      (6 . output-bool)))
 
   (define primfun?
     (lambda (x)
@@ -687,7 +694,9 @@
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'input-vector `(vector int))
             (cons 'input-scalar 'int)
-            (cons 'display      (list `(lambda int int) `(lambda (vector int) (vector int))))
+            (cons 'display      (list `(lambda int int)
+                                      `(lambda (vector int) (vector int))
+                                      `(lambda bool bool)))
             (cons 'map          (lambda ()
                                   (let ([a (fresh-typevar)]
                                         [b (fresh-typevar)])
@@ -700,6 +709,10 @@
                                   `(lambda int (lambda int int))
                                   `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'equal        `(lambda int (lambda int bool)))
+            (cons 'min          (list `(lambda bool (lambda bool bool))
+                                      `(lambda int (lambda int int))))
+            (cons 'max          (list `(lambda bool (lambda bool bool))
+                                      `(lambda int (lambda int int))))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-bool-constraint t) `(,t bool))
@@ -949,7 +962,13 @@
                `(primfun output-scalar (lambda int int))]
               [(equal? '(lambda (vector int) (vector int)) t^)
                `(primfun output-vector (lambda (vector int) (vector int)))]
+              [(equal? '(lambda bool bool) t^)
+               `(primfun output-bool (lambda bool bool))]
               [else (error 'expand-idioms "displaying unsupported type" t^)])]
+           [(and (equal? pf 'min) (equal? '(lambda bool (lambda bool bool)) t^))
+            `(primfun and ,t^)]
+           [(and (equal? pf 'max) (equal? '(lambda bool (lambda bool bool)) t^))
+            `(primfun or ,t^)]
            [else e]))]
       ))
 
@@ -1096,6 +1115,10 @@
          [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
          [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
          [(equal? pf 'equal) '(lambda (y) (lambda (x) (= x y)))]
+         [(equal? pf 'and) '(lambda (y) (lambda (x) (and x y)))]
+         [(equal? pf 'or) '(lambda (y) (lambda (x) (or x y)))]
+         [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
+         [(equal? pf 'max) '(lambda (y) (lambda (x) (max x y)))]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1130,6 +1153,8 @@
                                         [else (display " ") (print-vector tail)])))])
                (print-vector x))
              x)]
+         [(equal? pf 'output-bool)
+          '(lambda (b) (display (if b 1 0)) b)]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
@@ -1164,6 +1189,11 @@
                           ,malfunction-print-space
                           ,mlf-unit)))
                     $l))))
+      (define mlf-write-bool-lambda
+        `(lambda ($b)
+           (switch $b
+             (0 (apply $write_scalar 0))
+             (_ (apply $write_scalar 1)))))
       (define malfunction-map-lambda
         `(lambda ($f $v)
            (apply (global $Array $map) $f $v)))
@@ -1219,6 +1249,10 @@
           `(lambda ($x $y) (+ $x $y))]
          [(equal? pf 'equal)
           `(lambda ($y $x) (== $x $y))]
+         [(equal? pf 'and) '$min]
+         [(equal? pf 'or) '$max]
+         [(equal? pf 'min) '$min]
+         [(equal? pf 'max) '$max]
          [(equal? pf 'map)
            `(lambda ($f $xs) (apply $map $f $xs))]
          [(equal? pf 'reduce)
@@ -1233,6 +1267,8 @@
           '$write_scalar]
          [(equal? pf 'output-vector)
           '$write_vector]
+         [(equal? pf 'output-bool)
+          '$write_bool]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1262,6 +1298,9 @@
           ($read_vector ,malfunction-read-vector-lambda)
           ($write_scalar ,mlf-write-scalar-lambda)
           ($write_vector ,mlf-write-vector-lambda)
+          ($write_bool ,mlf-write-bool-lambda)
+          ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
+          ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
           (_ ,[Expr e])
           (_ ,malfunction-print-newline)
           (export))
