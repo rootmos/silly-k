@@ -111,6 +111,7 @@
             [(char=? c #\|)       (make-lexical-token 'PIPE location #f)]
             [(char=? c #\&)       (make-lexical-token 'AMPERSAND location #f)]
             [(char=? c #\~)       (make-lexical-token 'TILDE location #f)]
+            [(char=? c #\*)       (make-lexical-token 'STAR location #f)]
             [(char=? c #\@)       (make-lexical-token 'AT location #f)]
             [(char=? c #\/)       (make-lexical-token 'SLASH location #f)]
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
@@ -127,7 +128,7 @@
                 (PLUS (left: NUM) MINUS LPAREN RPAREN
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
-                 UNDERSCORE PIPE AMPERSAND TILDE)
+                 UNDERSCORE PIPE AMPERSAND TILDE STAR)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -150,6 +151,7 @@
                       (PIPE) : 'max
                       (AMPERSAND) : 'min
                       (TILDE) : 'negation
+                      (STAR) : 'star
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -170,7 +172,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal max min negation))))))
+      (not (not (memq x '(plus minus colon equal max min negation star))))))
 
   (define adverb?
     (lambda (x)
@@ -274,6 +276,7 @@
       (min . min)
       (max . max)
       (negation . negation)
+      (star . star)
       (0 . input-vector)
       (1 . input-scalar)
       (3 . display)
@@ -711,6 +714,7 @@
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
                                   `(lambda (vector int) (lambda (vector int) (vector int)))))
+            (cons 'star         (list `(lambda int (lambda int int))))
             (cons 'equal        `(lambda int (lambda int bool)))
             (cons 'min          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
@@ -974,6 +978,8 @@
             `(primfun and ,t^)]
            [(and (equal? pf 'max) (equal? '(lambda bool (lambda bool bool)) t^))
             `(primfun or ,t^)]
+           [(and (equal? pf 'star) (equal? '(lambda int (lambda int int)) t^))
+            `(primfun multiplication ,t^)]
            [else e]))]
       ))
 
@@ -1118,6 +1124,7 @@
        (cond
          [(equal? pf 'minus) '(lambda (y) (lambda (x) (- x y)))]
          [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
+         [(equal? pf 'multiplication) '(lambda (y) (lambda (x) (* x y)))]
          [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
          [(equal? pf 'equal) '(lambda (y) (lambda (x) (= x y)))]
          [(equal? pf 'and) '(lambda (y) (lambda (x) (and x y)))]
@@ -1253,6 +1260,8 @@
           `(lambda ($y $x) (- $x $y))]
          [(equal? pf 'plus)
           `(lambda ($x $y) (+ $x $y))]
+         [(equal? pf 'multiplication)
+          `(lambda ($y $x) (* $x $y))]
          [(equal? pf 'equal)
           `(lambda ($y $x) (== $x $y))]
          [(equal? pf 'and) '$min]

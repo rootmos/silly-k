@@ -4,6 +4,7 @@
 
 (define test-cases
   (list
+    (make-test-case "mult01"     "]2*3"                               #f                 "6")
     (make-test-case "number01"   "]7"                                 #f                 "7")
     (make-test-case "number02"   "]1 2 3"                             #f                 "1 2 3")
     (make-test-case "bool01"     "]1=2"                               #f                 "0")
