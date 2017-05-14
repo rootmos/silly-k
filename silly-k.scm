@@ -716,7 +716,8 @@
                                       `(lambda int (lambda int int))))
             (cons 'max          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
-            (cons 'negation     `(lambda bool bool))
+            (cons 'negation     (list `(lambda bool bool)
+                                      `(lambda int bool)))
             )))
       (with-output-language (L7 Constraint)
         (define (mk-bool-constraint t) `(,t bool))
@@ -1123,7 +1124,7 @@
          [(equal? pf 'or) '(lambda (y) (lambda (x) (or x y)))]
          [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
          [(equal? pf 'max) '(lambda (y) (lambda (x) (max x y)))]
-         [(equal? pf 'negation) 'not]
+         [(equal? pf 'negation) '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
