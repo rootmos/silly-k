@@ -20,12 +20,12 @@ using the following structure:
 ## Usage
 Easiest way to play around with it is to run the [Docker image](https://hub.docker.com/r/rootmos/silly-k/):
 ```
-rlrwrap docker run --rm -it rootmos/silly-k
+rlwrap docker run --rm -it rootmos/silly-k
 ```
 which starts the REPL (under [rlwrap](https://github.com/hanslub42/rlwrap)).
 
 ## Examples
-Here's some examples of the syntax (taken directly from the [tests](https://github.com/rootmos/silly-k/blob/master/tests.scm)
+Here's some examples of the syntax, taken directly from the [tests](https://github.com/rootmos/silly-k/blob/master/tests.scm):
 
 Code | Stdin | Stdout
 ---- | ----- | ------
