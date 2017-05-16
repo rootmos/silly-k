@@ -12,7 +12,6 @@ RUN git submodule update
 ADD silly-k.scm .
 ADD silly-k silly-k
 ADD repl.scm .
-ADD repl .
 ADD tests.scm .
 ADD Makefile .
 RUN sudo chown opam -R .
