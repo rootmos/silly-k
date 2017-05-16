@@ -19,4 +19,4 @@ RUN sudo chown opam -R .
 
 RUN make precompile
 
-ENTRYPOINT ["opam", "config", "exec", "make"]
+ENTRYPOINT ["opam", "config", "exec", "--", "make", "--quiet"]

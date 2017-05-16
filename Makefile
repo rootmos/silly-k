@@ -1,8 +1,8 @@
+SCHEME=scheme --libdirs .:nanopass-framework-scheme:lalr-scm --compile-imported-libraries --optimize-level 3
+
 .PHONY: repl
 repl:
-	./repl
-
-SCHEME=scheme --libdirs .:nanopass-framework-scheme:lalr-scm --compile-imported-libraries --optimize-level 3
+	$(SCHEME) --script repl.scm
 
 .PHONY: scheme
 scheme:

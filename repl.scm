@@ -5,16 +5,17 @@
                             (values #t)
                             (values #f))])
     (letrec ([go (lambda ()
-                   (display "   ")
+                   (display "   ]")
                    (let ([e (get-line (console-input-port))])
                      (cond
                        [(equal? e #!eof) (newline)]
                        [else
-                         (let ([scm (with-exception-handler
-                                      (lambda (e) (display-condition e) (newline) (go))
-                                      (lambda () (with-input-from-string e compile-to-scheme)))])
+                         (let* ([e^ (string-append "]" e)]
+                                [scm (with-exception-handler
+                                      (lambda (ex) (display-condition ex) (newline) (go))
+                                      (lambda () (with-input-from-string e^ compile-to-scheme)))])
                            (when verbose (pretty-print scm))
-                           (display (eval scm))
+                           (eval scm)
                            (newline)
                            (go))])))])
           (go))))
