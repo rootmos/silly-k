@@ -750,7 +750,8 @@
             (cons 'max          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
             (cons 'negation     (list `(lambda bool bool)
-                                      `(lambda int bool)))
+                                      `(lambda int bool)
+                                      `(lambda (vector bool) (vector bool))))
             )))
       (define (fresh-type-instance t)
         (cond
@@ -945,6 +946,16 @@
                  (apply
                    (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
                  (scalar 0 int) int) (lambda int int))]
+           [(and (equal? pf 'negation) (equal? '(lambda (vector bool) (vector bool)) t^))
+            `(lambda (bs (vector bool))
+               (apply
+                 (apply
+                   (primfun map (lambda (lambda bool bool) (lambda (vector bool) (vector bool))))
+                   (primfun negation (lambda bool bool))
+                   (lambda (vector bool) (vector bool)))
+                 (bs (vector bool))
+                 (vector bool))
+               (lambda (vector bool) (vector bool)))]
            ; 1 2 3+4 -> {w+4}'1 2 3
            [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus) (equal? pf 'equal)
                      (equal? pf 'less) (equal? pf 'more))

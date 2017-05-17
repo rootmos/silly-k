@@ -28,6 +28,7 @@
     (make-test-case "negation02" "]~2=2"                              #f                 "0")
     (make-test-case "negation03" "]~0"                                #f                 "1")
     (make-test-case "negation04" "]~7"                                #f                 "0")
+    (make-test-case "negation05" "]~2=1 2 3"                          #f                 "1 0 1")
     (make-test-case "or01"       "](1=2)|2=3"                         #f                 "0")
     (make-test-case "or02"       "](1=2)|2=2"                         #f                 "1")
     (make-test-case "or03"       "](2=2)|2=3"                         #f                 "1")
