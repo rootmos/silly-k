@@ -736,9 +736,15 @@
                                       `(lambda int (lambda (vector int) (vector int)))
                                       `(lambda (vector int) (lambda int (vector int)))
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
-            (cons 'equal        `(lambda int (lambda int bool)))
-            (cons 'less         `(lambda int (lambda int bool)))
-            (cons 'more         `(lambda int (lambda int bool)))
+            (cons 'equal        (list `(lambda int (lambda int bool))
+                                      `(lambda (vector int) (lambda int (vector bool)))
+                                      `(lambda int (lambda (vector int) (vector bool)))))
+            (cons 'less         (list `(lambda int (lambda int bool))
+                                      `(lambda (vector int) (lambda int (vector bool)))
+                                      `(lambda int (lambda (vector int) (vector bool)))))
+            (cons 'more         (list `(lambda int (lambda int bool))
+                                      `(lambda (vector int) (lambda int (vector bool)))
+                                      `(lambda int (lambda (vector int) (vector bool)))))
             (cons 'min          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
             (cons 'max          (list `(lambda bool (lambda bool bool))
@@ -923,6 +929,11 @@
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,bool bool]
       [,int int])
+    (mk-Type : * (t) -> Type ()
+      (cond
+        [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
+        [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
+        [else t]))
     (Expr : Expr (e) -> Expr ()
       [(primfun ,pf ,t)
        (let ([t^ (unwrap-Type t)])
@@ -935,55 +946,63 @@
                    (primfun minus (lambda int (lambda int int))) (x int) (lambda int int))
                  (scalar 0 int) int) (lambda int int))]
            ; 1 2 3+4 -> {w+4}'1 2 3
-           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus))
-                 (equal? '(lambda int (lambda (vector int) (vector int))) t^))
-            (let ([pf^ (cond
-                         [(equal? pf 'star) 'multiplication]
-                         [else pf])])
-              `(lambda (x int)
-                 (lambda (xs (vector int))
-                   (apply
+           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus) (equal? pf 'equal)
+                     (equal? pf 'less) (equal? pf 'more))
+                 (unify (list (list '(lambda (typevar T0) (lambda (vector (typevar T0)) (vector (typevar T1))))
+                                    t^)))) => (lambda (sub)
+              (let ([pf^ (cond
+                           [(equal? pf 'star) 'multiplication]
+                           [else pf])]
+                    [T0 (mk-Type (sub '(typevar T0)))]
+                    [T1 (mk-Type (sub '(typevar T1)))])
+                `(lambda (x ,T0)
+                   (lambda (xs (vector ,T0))
                      (apply
-                       (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                       (lambda (y int)
-                         (apply
+                       (apply
+                         (primfun map (lambda (lambda ,T0 ,T1) (lambda (vector ,T0) (vector ,T1))))
+                         (lambda (y ,T0)
                            (apply
-                             (primfun ,pf^ (lambda int (lambda int int)))
-                             (x int)
-                             (lambda int int))
-                           (y int)
-                           int)
-                         (lambda int int))
-                       (lambda (vector int) (vector int)))
-                     (xs (vector int))
-                     (vector int))
-                   (lambda (vector int) (vector int)))
-                 (lambda int (lambda (vector int) (vector int)))))]
+                             (apply
+                               (primfun ,pf^ (lambda ,T0 (lambda ,T0 ,T1)))
+                               (x ,T0)
+                               (lambda ,T0 ,T1))
+                             (y ,T0)
+                             ,T1)
+                           (lambda ,T0 ,T1))
+                         (lambda (vector ,T0) (vector ,T1)))
+                       (xs (vector ,T0))
+                       (vector ,T1))
+                     (lambda (vector ,T0) (vector ,T1)))
+                   (lambda ,T0 (lambda (vector ,T0) (vector ,T1))))))]
            ; 1+2 3 -> 3 4
-           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus))
-                 (equal? '(lambda (vector int) (lambda int (vector int))) t^))
+           [(and (or (equal? pf 'plus) (equal? pf 'star) (equal? pf 'minus) (equal? pf 'equal)
+                     (equal? pf 'less) (equal? pf 'more))
+                 (unify (list (list '(lambda (vector (typevar T0)) (lambda (typevar T0) (vector (typevar T1))))
+                                    t^)))) => (lambda (sub)
             (let ([pf^ (cond
                          [(equal? pf 'star) 'multiplication]
-                         [else pf])])
-              `(lambda (xs (vector int))
-                 (lambda (x int)
+                         [else pf])]
+                    [T0 (mk-Type (sub '(typevar T0)))]
+                    [T1 (mk-Type (sub '(typevar T1)))])
+              `(lambda (xs (vector ,T0))
+                 (lambda (x ,T0)
                    (apply
                      (apply
-                       (primfun map (lambda (lambda int int) (lambda (vector int) (vector int))))
-                       (lambda (y int)
+                       (primfun map (lambda (lambda ,T0 ,T1) (lambda (vector ,T0) (vector ,T1))))
+                       (lambda (y ,T0)
                          (apply
                            (apply
-                             (primfun ,pf^ (lambda int (lambda int int)))
-                             (y int)
-                             (lambda int int))
-                           (x int)
-                           int)
-                         (lambda int int))
-                       (lambda (vector int) (vector int)))
-                     (xs (vector int))
-                     (vector int))
-                   (lambda int (vector int)))
-                 (lambda (vector int) (lambda int (vector int)))))]
+                             (primfun ,pf^ (lambda ,T0 (lambda ,T0 ,T1)))
+                             (y ,T0)
+                             (lambda ,T0 ,T1))
+                           (x ,T0)
+                           ,T1)
+                         (lambda ,T0 ,T1))
+                       (lambda (vector ,T0) (vector ,T1)))
+                     (xs (vector ,T0))
+                     (vector ,T1))
+                   (lambda ,T0 (vector ,T1)))
+                 (lambda (vector ,T0) (lambda ,T0 (vector ,T1))))))]
            ; 1 2+3 4 or 1 2-3 4
            [(and (or (equal? pf 'plus) (equal? pf 'minus) (equal? pf 'star))
                  (equal? '(lambda (vector int) (lambda (vector int) (vector int))) t^))
@@ -1033,11 +1052,11 @@
                   (lambda (vector bool) (vector bool)))]
               [else (error 'expand-idioms "displaying unsupported type" t^)])]
            [(and (equal? pf 'min) (equal? '(lambda bool (lambda bool bool)) t^))
-            `(primfun and ,t^)]
+            `(primfun and ,(mk-Type t^))]
            [(and (equal? pf 'max) (equal? '(lambda bool (lambda bool bool)) t^))
-            `(primfun or ,t^)]
+            `(primfun or ,(mk-Type t^))]
            [(and (equal? pf 'star) (equal? '(lambda int (lambda int int)) t^))
-            `(primfun multiplication ,t^)]
+            `(primfun multiplication ,(mk-Type t^))]
            ; TODO: use unify to match the polymorphic type
            [(and (equal? pf 'map) (equal? '(lambda (lambda int (lambda int int))
                                              (lambda (vector int)
@@ -1145,7 +1164,7 @@
                         (unparse-L8 e^) t^ t)]))])
     (Program : Program (p) -> Program ()
       [(program ,e ,t)
-       (let-values ([(e^ t^) (Expr e '())]) ; TOOD: populate the ctx using the globals (or refactor out the globals)
+       (let-values ([(e^ t^) (Expr e '())])
          (let ([ut (unwrap-Type t)])
            (cond
              [(equal? ut t^) `(program ,e^ ,t)]
@@ -1424,22 +1443,23 @@
 
   (define (compiler-frontend)
     (untype
-      (expand-idioms
-        (unify-and-substitute-types
-          (derive-type-constraints
-            (type-lambda-abstractions
-              (introduce-fresh-typevars
-                (type-scalars-and-vectors
-                  (remove-lets
-                    (pick-spine-values
-                      (translate-L3-spine-intermediate-into-L3-spine
-                        (introduce-let-spine
-                          (embedd-L3-into-L3-spine-intermediate
-                            (introduce-lambda-abstractions
-                              (translate-to-primfuns
-                                (differentiate-scalars
-                                  (ast-to-Lsrc
-                                    (parse-silly-k))))))))))))))))))
+      (type-check
+        (expand-idioms
+          (unify-and-substitute-types
+            (derive-type-constraints
+              (type-lambda-abstractions
+                (introduce-fresh-typevars
+                  (type-scalars-and-vectors
+                    (remove-lets
+                      (pick-spine-values
+                        (translate-L3-spine-intermediate-into-L3-spine
+                          (introduce-let-spine
+                            (embedd-L3-into-L3-spine-intermediate
+                              (introduce-lambda-abstractions
+                                (translate-to-primfuns
+                                  (differentiate-scalars
+                                    (ast-to-Lsrc
+                                      (parse-silly-k)))))))))))))))))))
 
 
   (define (compile-to-malfunction)
