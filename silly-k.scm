@@ -709,7 +709,8 @@
             (cons 'input-scalar 'int)
             (cons 'display      (list `(lambda int int)
                                       `(lambda (vector int) (vector int))
-                                      `(lambda bool bool)))
+                                      `(lambda bool bool)
+                                      `(lambda (vector bool) (vector bool))))
             (cons 'map          (list (lambda ()
                                         (let ([a (fresh-typevar)]
                                               [b (fresh-typevar)])
@@ -1011,6 +1012,25 @@
                `(primfun output-vector (lambda (vector int) (vector int)))]
               [(equal? '(lambda bool bool) t^)
                `(primfun output-bool (lambda bool bool))]
+              [(equal? '(lambda (vector bool) (vector bool)) t^)
+               `(lambda (xs (vector bool))
+                  (apply
+                    (apply
+                      (primfun kite (lambda (vector int) (lambda (vector bool) (vector bool))))
+                      (apply
+                        (primfun output-vector (lambda (vector int) (vector int)))
+                        (apply
+                          (apply
+                            (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
+                            (primfun coerce-bool-int (lambda bool int))
+                            (lambda (vector bool) (vector int)))
+                          (xs (vector bool))
+                          (vector int))
+                        (vector int))
+                      (lambda (vector bool) (vector bool)))
+                    (xs (vector bool))
+                    (vector bool))
+                  (lambda (vector bool) (vector bool)))]
               [else (error 'expand-idioms "displaying unsupported type" t^)])]
            [(and (equal? pf 'min) (equal? '(lambda bool (lambda bool bool)) t^))
             `(primfun and ,t^)]
@@ -1199,6 +1219,8 @@
          [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
          [(equal? pf 'max) '(lambda (y) (lambda (x) (max x y)))]
          [(equal? pf 'negation) '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
+         [(equal? pf 'kite) '(lambda (a) (lambda (b) b))]
+         [(equal? pf 'coerce-bool-int) '(lambda (b) (if b 1 0))]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1356,6 +1378,10 @@
           '$write_vector]
          [(equal? pf 'output-bool)
           '$write_bool]
+         [(equal? pf 'kite)
+          '$kite]
+         [(equal? pf 'coerce-bool-int)
+          '$identity]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1386,6 +1412,8 @@
           ($write_scalar ,mlf-write-scalar-lambda)
           ($write_vector ,mlf-write-vector-lambda)
           ($write_bool ,mlf-write-bool-lambda)
+          ($kite (lambda ($a $b) $b))
+          ($identity (lambda ($a) $a))
           ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
           ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
           ($not (lambda ($x) (switch $x (0 1) (_ 0))))
