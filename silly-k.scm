@@ -119,6 +119,7 @@
             [(char=? c #\')       (make-lexical-token 'QUOTE location #f)]
             [(char=? c #\=)       (make-lexical-token 'EQUAL location #f)]
             [(char=? c #\_)       (make-lexical-token 'UNDERSCORE location #f)]
+            [(char=? c #\!)       (make-lexical-token 'EXCLAMATION location #f)]
             [(char-numeric? c)    (make-lexical-token 'NUM location (read-number `(,c)))]
             [(char-alphabetic? c) (make-lexical-token 'ATOM location (read-atom `(,c)))]
             [else (error 'lex "Unrecognized character" c)])))))
@@ -131,7 +132,7 @@
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
                  UNDERSCORE PIPE AMPERSAND TILDE STAR
-                 LESS MORE)
+                 LESS MORE EXCLAMATION)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -157,6 +158,7 @@
                       (STAR) : 'star
                       (LESS) : 'less
                       (MORE) : 'more
+                      (EXCLAMATION) : 'iota
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -177,7 +179,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal max min negation star less more))))))
+      (not (not (memq x '(plus minus colon equal max min negation star less more iota))))))
 
   (define adverb?
     (lambda (x)
@@ -282,6 +284,7 @@
       (max . max)
       (less . less)
       (more . more)
+      (iota . iota)
       (negation . negation)
       (star . star)
       (0 . input-vector)
@@ -752,6 +755,7 @@
             (cons 'negation     (list `(lambda bool bool)
                                       `(lambda int bool)
                                       `(lambda (vector bool) (vector bool))))
+            (cons 'iota         `(lambda int (vector int)))
             )))
       (define (fresh-type-instance t)
         (cond
@@ -1251,6 +1255,7 @@
          [(equal? pf 'negation) '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
          [(equal? pf 'kite) '(lambda (a) (lambda (b) b))]
          [(equal? pf 'coerce-bool-int) '(lambda (b) (if b 1 0))]
+         [(equal? pf 'iota) 'iota]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1410,6 +1415,7 @@
           '$write_bool]
          [(equal? pf 'kite)
           '$kite]
+         [(equal? pf 'iota) '$iota]
          [(equal? pf 'coerce-bool-int)
           '$identity]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
@@ -1444,6 +1450,7 @@
           ($write_bool ,mlf-write-bool-lambda)
           ($kite (lambda ($a $b) $b))
           ($identity (lambda ($a) $a))
+          ($iota (lambda ($n) (apply (global $Array $init) $n $identity)))
           ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
           ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
           ($not (lambda ($x) (switch $x (0 1) (_ 0))))
