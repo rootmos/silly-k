@@ -882,9 +882,9 @@
                                                            (lambda (x) (f (substitute t s x))))]
                         [else #f])]
                      [(and (lambda-type? s) (lambda-type? t))
-                      (unify (append cs^ (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t)))))]
+                      (unify (append (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t))) cs^))]
                      [(and (vector-type? s) (vector-type? t))
-                      (unify (append cs^ (list (list (cadr s) (cadr t)))))]
+                      (unify (append (list (list (cadr s) (cadr t))) cs^))]
                      [else #f]))])
         (if (overloaded-constraint? c)
           (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
