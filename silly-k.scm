@@ -1305,72 +1305,17 @@
     (definitions
       (define (mlf-symbol s) (string->symbol (format "$~s" s)))
       (define mlf-self (mlf-symbol self))
-      (define mlf-write-scalar-lambda
-        '(lambda ($x) (seq (apply (global $Pervasives $print_int) $x) $x)))
       (define mlf-unit '(block (tag 0)))
-      (define malfunction-print-newline
-        `(apply (global $Pervasives $print_newline) ,mlf-unit))
-      (define malfunction-print-space
-        `(apply (global $Pervasives $print_char) 32))
       (define (mlf-error reason code)
         `(seq (apply (global $Pervasives $prerr_endline) ,reason)
               (apply (global $Pervasives $exit) ,code)))
-      (define mlf-write-vector-lambda
-        `(lambda ($l)
-           (let ($n (length $l))
-             (apply (global $Array $iteri)
-                    (lambda ($i $x)
-                      (seq
-                        (apply $write_scalar $x)
-                        (if (< (+ $i 1) $n)
-                          ,malfunction-print-space
-                          ,mlf-unit)))
-                    $l))))
-      (define mlf-write-bool-lambda
-        `(lambda ($b)
-           (switch $b
-             (0 (apply $write_scalar 0))
-             (_ (apply $write_scalar 1)))))
-      (define malfunction-map-lambda
-        `(lambda ($f $v)
-           (apply (global $Array $map) $f $v)))
-      (define malfunction-zip-lambda
-        `(lambda ($f $v $w)
-           (let
-             ($n (length $v))
-             ($m (length $w))
-             (if (== $n $m)
-               (apply (global $Array $map2) $f $v $w)
-               (apply $length_error ,mlf-unit)))))
-      (define malfunction-foldr-lambda
-        `(lambda ($f $b $v)
-           (apply (global $Array $fold_right) $f $v $b)))
-      (define malfunction-reduce-lambda
-        `(lambda ($f $v)
-           (let
-             ($n (length $v))
-             (rec ($go (lambda ($acc $i)
-                         (switch $i
-                           (-1 $acc)
-                           (_ (apply $go (apply $f $acc (load $v $i)) (- $i 1)))))))
-             (apply $go (load $v (- $n 1)) (- $n 2)))))
       (define (make-malfunction-vector l)
         (letrec ([go (lambda (i k)
                        (if (null? k)
                          '()
                          (cons `(store $v ,i ,(car k)) (go (+ i 1) (cdr k)))))])
           (let ([body (append '(seq) (go 0 l) '($v))])
-            `(let ($v (makevec ,(length l) 0)) ,body))))
-      (define malfunction-read-scalar-lambda
-        `(lambda ($x)
-           (apply (global $Pervasives $read_int) ,mlf-unit)))
-      (define malfunction-read-vector-lambda
-        `(lambda ($x)
-           (apply (global $Array $map)
-                  (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
-                  (apply (global $Array $of_list)
-                         (apply (global $Str $split) (apply (global $Str $regexp) " +")
-                                (apply (global $Pervasives $read_line) ,mlf-unit)))))))
+            `(let ($v (makevec ,(length l) 0)) ,body)))))
     (CondArm : CondArm (ca) -> * ()
       [(,e0 ,e1) `(,[Expr e0] ,[Expr e1])]
       [(else ,e) `(else ,[Expr e])])
@@ -1380,44 +1325,28 @@
       [(vector ,nv) (make-malfunction-vector nv)]
       [(primfun ,pf)
        (cond
-         [(equal? pf 'minus)
-          `(lambda ($y $x) (- $x $y))]
-         [(equal? pf 'plus)
-          `(lambda ($x $y) (+ $x $y))]
-         [(equal? pf 'multiplication)
-          `(lambda ($y $x) (* $x $y))]
-         [(equal? pf 'equal)
-          `(lambda ($y $x) (== $x $y))]
-         [(equal? pf 'less)
-          `(lambda ($y $x) (< $x $y))]
-         [(equal? pf 'more)
-          `(lambda ($y $x) (> $x $y))]
+         [(equal? pf 'minus) `(lambda ($y $x) (- $x $y))]
+         [(equal? pf 'plus) `(lambda ($x $y) (+ $x $y))]
+         [(equal? pf 'multiplication) `(lambda ($y $x) (* $x $y))]
+         [(equal? pf 'equal) `(lambda ($y $x) (== $x $y))]
+         [(equal? pf 'less) `(lambda ($y $x) (< $x $y))]
+         [(equal? pf 'more) `(lambda ($y $x) (> $x $y))]
          [(equal? pf 'and) '$min]
          [(equal? pf 'or) '$max]
          [(equal? pf 'min) '$min]
          [(equal? pf 'max) '$max]
          [(equal? pf 'negation) '$not]
-         [(equal? pf 'map)
-           `(lambda ($f $xs) (apply $map $f $xs))]
-         [(equal? pf 'reduce)
-          `(lambda ($f $xs) (apply $reduce $f $xs))]
-         [(equal? pf 'zip)
-          `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
-         [(equal? pf 'input-vector)
-          `(apply $read_vector ,mlf-unit)]
-         [(equal? pf 'input-scalar)
-          `(apply $read_scalar ,mlf-unit)]
-         [(equal? pf 'output-scalar)
-          '$write_scalar]
-         [(equal? pf 'output-vector)
-          '$write_vector]
-         [(equal? pf 'output-bool)
-          '$write_bool]
-         [(equal? pf 'kite)
-          '$kite]
+         [(equal? pf 'map) `(lambda ($f $xs) (apply $map $f $xs))]
+         [(equal? pf 'reduce) `(lambda ($f $xs) (apply $reduce $f $xs))]
+         [(equal? pf 'zip) `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
+         [(equal? pf 'input-vector) `(apply $read_vector ,mlf-unit)]
+         [(equal? pf 'input-scalar) `(apply $read_scalar ,mlf-unit)]
+         [(equal? pf 'output-scalar) '$write_scalar]
+         [(equal? pf 'output-vector) '$write_vector]
+         [(equal? pf 'output-bool) '$write_bool]
+         [(equal? pf 'kite) '$kite]
          [(equal? pf 'iota) '$iota]
-         [(equal? pf 'coerce-bool-int)
-          '$identity]
+         [(equal? pf 'coerce-bool-int) '$identity]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1439,15 +1368,45 @@
        `(module
           ($match_error (lambda ($u) ,[mlf-error "match error" 3]))
           ($length_error (lambda ($u) ,[mlf-error "length error" 4]))
-          ($map ,malfunction-map-lambda)
-          ($zip ,malfunction-zip-lambda)
-          ($foldr ,malfunction-foldr-lambda)
-          ($reduce ,malfunction-reduce-lambda)
-          ($read_scalar ,malfunction-read-scalar-lambda)
-          ($read_vector ,malfunction-read-vector-lambda)
-          ($write_scalar ,mlf-write-scalar-lambda)
-          ($write_vector ,mlf-write-vector-lambda)
-          ($write_bool ,mlf-write-bool-lambda)
+          ($map (lambda ($f $v) (apply (global $Array $map) $f $v)))
+          ($zip (lambda ($f $v $w)
+                  (let
+                    ($n (length $v))
+                    ($m (length $w))
+                    (if (== $n $m)
+                      (apply (global $Array $map2) $f $v $w)
+                      (apply $length_error ,mlf-unit)))))
+          ($foldr (lambda ($f $b $v) (apply (global $Array $fold_right) $f $v $b)))
+          ($reduce (lambda ($f $v)
+                     (let
+                       ($n (length $v))
+                       (rec ($go (lambda ($acc $i)
+                                   (switch $i
+                                           (-1 $acc)
+                                           (_ (apply $go (apply $f $acc (load $v $i)) (- $i 1)))))))
+                       (apply $go (load $v (- $n 1)) (- $n 2)))))
+          ($read_scalar (lambda ($x) (apply (global $Pervasives $read_int) ,mlf-unit)))
+          ($read_vector (lambda ($x)
+                          (apply (global $Array $map)
+                                 (lambda ($s) (apply (global $Pervasives $int_of_string) $s))
+                                 (apply (global $Array $of_list)
+                                        (apply (global $Str $split) (apply (global $Str $regexp) " +")
+                                               (apply (global $Pervasives $read_line) ,mlf-unit))))))
+          ($write_scalar (lambda ($x) (seq (apply (global $Pervasives $print_int) $x) $x)))
+          ($write_vector (lambda ($l)
+                           (let ($n (length $l))
+                             (apply (global $Array $iteri)
+                                    (lambda ($i $x)
+                                      (seq
+                                        (apply $write_scalar $x)
+                                        (if (< (+ $i 1) $n)
+                                          (apply (global $Pervasives $print_char) 32)
+                                          ,mlf-unit)))
+                                    $l))))
+          ($write_bool (lambda ($b)
+                         (switch $b
+                                 (0 (apply $write_scalar 0))
+                                 (_ (apply $write_scalar 1)))))
           ($kite (lambda ($a $b) $b))
           ($identity (lambda ($a) $a))
           ($iota (lambda ($n) (apply (global $Array $init) $n $identity)))
@@ -1455,7 +1414,7 @@
           ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
           ($not (lambda ($x) (switch $x (0 1) (_ 0))))
           (_ ,[Expr e])
-          (_ ,malfunction-print-newline)
+          (_ (apply (global $Pervasives $print_newline) ,mlf-unit))
           (export))
        ]))
 
