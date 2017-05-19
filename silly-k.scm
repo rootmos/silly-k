@@ -705,6 +705,7 @@
         (define primfun-types-table
           (list
             (cons 'plus         (list `(lambda int (lambda int int))
+                                      `(lambda bool (lambda bool int))
                                       `(lambda int (lambda (vector int) (vector int)))
                                       `(lambda (vector int) (lambda int (vector int)))
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
@@ -726,9 +727,10 @@
                                           `(lambda (lambda ,a (lambda ,b ,c))
                                              (lambda (vector ,a)
                                              (lambda ,b (vector ,c))))))))
-            (cons 'reduce       (lambda ()
-                                  (let ([a (fresh-typevar)])
-                                    `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a)))))
+            (cons 'reduce       (list (lambda ()
+                                        (let ([a (fresh-typevar)])
+                                          `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a))))
+                                      `(lambda (lambda int (lambda int int)) (lambda (vector bool) int))))
             (cons 'minus        (list
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
@@ -943,6 +945,24 @@
       [(primfun ,pf ,t)
        (let ([t^ (unwrap-Type t)])
          (cond
+           [(and (equal? pf 'plus) (equal? '(lambda bool (lambda bool int)) t^))
+            `(lambda (r bool)
+               (lambda (l bool)
+                 (apply
+                   (apply
+                     (primfun plus (lambda int (lambda int int)))
+                     (apply
+                       (primfun coerce-bool-int (lambda bool int))
+                       (r bool)
+                       int)
+                     (lambda int int))
+                   (apply
+                     (primfun coerce-bool-int (lambda bool int))
+                     (l bool)
+                     int)
+                   int)
+                 (lambda bool int))
+               (lambda bool (lambda bool int)))]
            ; -2 -> 0-2
            [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
             `(lambda (x int)
@@ -1099,6 +1119,24 @@
                  (lambda (vector int) (lambda int (vector int))))
                (lambda (lambda int (lambda int int))
                  (lambda (vector int) (lambda int (vector int)))))]
+           [(and (equal? pf 'reduce) (equal? '(lambda (lambda int (lambda int int)) (lambda (vector bool) int)) t^))
+            `(lambda (f (lambda int (lambda int int)))
+               (lambda (bs (vector bool))
+                 (apply
+                   (apply
+                     (primfun reduce (lambda (lambda int (lambda int int)) (lambda (vector int) int)))
+                     (primfun plus (lambda int (lambda int int)))
+                     (lambda (vector int) int))
+                   (apply
+                     (apply
+                       (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
+                       (primfun coerce-bool-int (lambda bool int))
+                       (lambda (vector bool) (vector int)))
+                     (bs (vector bool))
+                     (vector int))
+                   int)
+                 (lambda (vector bool) int))
+               (lambda (lambda int (lambda int int)) (lambda (vector bool) int)))]
            [else e]))]
       ))
 
