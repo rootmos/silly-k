@@ -44,6 +44,7 @@
     (make-test-case "addition03" "]1 2+3 4"                           #f                 "4 6")
     (make-test-case "addition04" "]1 2+3"                             #f                 "4 5")
     (make-test-case "addition05" "](1=1)+(2=2)"                       #f                 "2")
+    (make-test-case "addition06" "]1+(2=2)"                           #f                 "2")
     (make-test-case "minus01"    "]2-3"                               #f                 "-1")
     (make-test-case "minus02"    "]1-(-2)"                            #f                 "3")
     (make-test-case "minus03"    "]1 2-3 4"                           #f                 "-2 -2")
