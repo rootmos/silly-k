@@ -14,14 +14,15 @@
           introduce-let-spine            unparse-L3-spine-intermediate
           translate-L3-spine-intermediate-into-L3-spine  unparse-L3-spine
           remove-lets                    unparse-L3-without-let
+          disable-let-binding
           type-scalars-and-vectors       unparse-L4
           pick-spine-values              unparse-L3-picked-spine-values
           introduce-fresh-typevars       unparse-L5
           type-lambda-abstractions       unparse-L6
+          add-coercion-points            unparse-L6-with-coercion
           derive-type-constraints        unparse-L7
           unify-and-substitute-types     unparse-L8
-          coerce-values                  
-          remove-coerced-types           unparse-L9
+          coerce-values                  unparse-L9
           expand-idioms
           type-check
           untype                         unparse-L10
@@ -46,19 +47,20 @@
       (translate-L3-spine-intermediate-into-L3-spine . unparse-L3-spine)
       (pick-spine-values                             . unparse-L3-picked-spine-values)
       (remove-lets                                   . unparse-L3-without-let)
+      ;(disable-let-binding                           . unparse-L3-without-let)
       (type-scalars-and-vectors                      . unparse-L4)
       (introduce-fresh-typevars                      . unparse-L5)
       (type-lambda-abstractions                      . unparse-L6)
+      (add-coercion-points                           . unparse-L6-with-coercion)
       (derive-type-constraints                       . unparse-L7)
       (unify-and-substitute-types                    . unparse-L8)
-      (coerce-values                                 . unparse-L8)
-      (remove-coerced-types                          . unparse-L9)
+      (coerce-values                                 . unparse-L9)
       (type-check                                    . unparse-L9)
       (expand-idioms                                 . unparse-L9)
       (type-check                                    . unparse-L9)
       (untype                                        . unparse-L10)
-      ;(output-scheme                                . id)
-      (output-malfunction                            . id)
+      (output-scheme                                . id)
+      ;(output-malfunction                            . id)
       ))
 
 
@@ -516,6 +518,8 @@
       (+ (scalar n t))
       ))
 
+  (define-pass disable-let-binding : L3 (e) -> L3-without-let ())
+
   (define-pass type-scalars-and-vectors : L3-without-let (e) -> L4 ()
     (Expr : Expr (e) -> Expr ()
       [(vector ,nv) `(vector ,nv (vector int))]
@@ -540,6 +544,7 @@
       (- (cond (ca* ...)))
       (+ (cond (ca* ...) t))
       ))
+
 
   (define-pass introduce-fresh-typevars : L4 (e) -> L5 ()
     (definitions
@@ -678,11 +683,32 @@
        (let-values ([(e^ t env) (Expr e '())])
          `(program ,e^ ,t))]))
 
+
+  (define-language
+    L6-with-coercion
+    (extends L6)
+    (Expr (e)
+      (+ (coerce e t))))
+
+  (define-pass add-coercion-points : L6 (e) -> L6-with-coercion ()
+    (definitions
+      (define typevar-counter 0)
+      (with-output-language (L6-with-coercion Type)
+        (define fresh-typevar
+          (lambda ()
+            (let ([c typevar-counter])
+              (set! typevar-counter (+ c 1))
+              `(typevar ,(string->symbol (format "C~s" c))))))))
+    (Type : Type (t) -> Type ())
+    (Expr : Expr (expr) -> Expr ()
+      [(apply ,e0 ,e1 ,t)
+       `(apply ,[Expr e0] (coerce ,[Expr e1] ,[fresh-typevar]) ,[Type t])]))
+
   (define (bool? e) (eqv? e 'bool))
 
   (define-language
     L7
-    (extends L6)
+    (extends L6-with-coercion)
     (terminals
       (+ (bool (bool))))
     (Type (t)
@@ -694,7 +720,7 @@
       (- (program e t))
       (+ (program e t (c* ...)))))
 
-  (define-pass derive-type-constraints : L6 (e) -> L7 ()
+  (define-pass derive-type-constraints : L6-with-coercion (e) -> L7 ()
     (definitions
       ; TODO: move the introduction of these type-variables to earlier pass
       (define typevar-counter 0)
@@ -709,7 +735,6 @@
         (define primfun-types-table
           (list
             (cons 'plus         (list `(lambda int (lambda int int))
-                                      ;`(lambda bool (lambda bool int))
                                       `(lambda int (lambda (vector int) (vector int)))
                                       `(lambda (vector int) (lambda int (vector int)))
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
@@ -771,7 +796,9 @@
         (define (mk-bool-constraint t) `(,t bool))
         (define (mk-constraint t0 t1) `(,t0 ,t1))
         (define (mk-overloading t0 t*)
-          `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))))
+          `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))
+        (define (mk-coerce-constraint t0 t1)
+          `(overloaded (lambda ,t0 ,t1) ((lambda ,t0 ,t0) (lambda bool int))))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -805,6 +832,11 @@
        (let*-values ([(e^ et^ cs^) (Expr e cs)])
          (let ([t1^ (Type t1)] [t2^ (Type t2)])
            (values `(lambda-rec (,s ,(Type t0)) ,e^ ,t1^ ,t2^) t1^ (cons (mk-constraint t1^ t2^) cs^))))]
+      [(coerce ,e ,t)
+       (let-values ([(e^ et^ cs^) (Expr e cs)])
+         (let* ([t^ (Type t)]
+                [cs^^ (cons (mk-coerce-constraint et^ t^) cs^)])
+           (values `(coerce ,e^ ,t^) t^ cs^^)))]
       [(cond (,ca* ...) ,t)
        (let* ([t^ (Type t)]
               [cas-cs (fold-left
@@ -852,9 +884,6 @@
   (define (vector-type? x)
     (and (list? x) (= 2 (length x)) (equal? 'vector (car x))))
 
-  (define (coerced-type? x)
-    (and (list? x) (= 3 (length x)) (equal? 'coerce (car x))))
-
   (define (overloaded-constraint? x)
     (and (list? x) (= 3 (length x)) (equal? 'overloaded (car x))))
 
@@ -880,45 +909,26 @@
              [go (lambda (s t)
                    (cond
                      [(equal? s t) (unify cs^)]
-                     ;[(coerced-type? s) (unify (cons (list (caddr s) t) cs^))]
-                     ;[(coerced-type? t) (unify (cons (list s (caddr t)) cs^))]
                      [(and (typevar-type? s) (not (occurs s t)))
                       (cond
                         [(unify (substitute s t cs^)) => (lambda (f)
-                                                           (lambda (x) (f (substitute s t x))))]
-                        [(and (equal? t 'bool)
-                              (unify (substitute s '(coerce bool int) cs^))) => (lambda (f)
-                              (lambda (x) (f (substitute s '(coerce bool int) x))))]
+                                                            (lambda (x) (f (substitute s t x))))]
                         [else #f])]
                      [(and (typevar-type? t) (not (occurs t s)))
                       (cond
                         [(unify (substitute t s cs^)) => (lambda (f)
                                                            (lambda (x) (f (substitute t s x))))]
-                        [(and (equal? s 'bool)
-                              (unify (substitute t '(coerce bool int) cs^))) => (lambda (f)
-                              (lambda (x) (f (substitute '(coerce bool int) t x))))]
                         [else #f])]
                      [(and (lambda-type? s) (lambda-type? t))
-                      (cond
-                        [(unify (append (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t))) cs^))]
-                        [(and (coerced-type? (cadr s))
-                              (unify (append (list (list (caddr (cadr s)) (cadr t))
-                                                   (list (caddr s) (caddr t)))
-                                             cs^)))]
-                        [(and (coerced-type? (cadr t))
-                              (unify (append (list (list (cadr s) (caddr (cadr t)))
-                                                   (list (caddr s) (caddr t)))
-                                             cs^)))]
-                        [else #f])]
+                      (unify (append (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t))) cs^))]
                      [(and (vector-type? s) (vector-type? t))
                       (unify (append (list (list (cadr s) (cadr t))) cs^))]
-                     ;[(can-be-coerced? s t) => (lambda (coercion) (pretty-print "coering") (unify cs^))]
                      [else #f]))])
         (if (overloaded-constraint? c)
           (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
-            (if (= 1 (length alts))
-              (car alts)
-              #f))
+            (if (null? alts)
+              #f
+              (car alts)))
           (let ([s (car c)] [t (cadr c)]) (go s t))))))
 
   (define-language
@@ -927,8 +937,7 @@
     (terminals
       (- (typevar (tv))))
     (Type (t)
-      (- (typevar tv))
-      (+ (coerce t0 t1)))
+      (- (typevar tv)))
     (Constraint (c)
       (- (t0 t1))
       (- (overloaded t0 (t* ...))))
@@ -946,7 +955,6 @@
        (cond
          [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
          [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
-         [(coerced-type? t) `(coerce ,(mk-Type (cadr t)) ,(mk-Type (caddr t)))]
          [else t]))
      (Expr : Expr (e sub) -> Expr ())
      (Program : Program (p) -> Program ()
@@ -958,104 +966,46 @@
            [else (error 'unify-and-substitute-types "unable to unify types" cs)]
           ))]))
 
-  (define-pass coerce-values : L8 (e) -> L8 ()
-    (unwrap-Type : Type (t) -> * ()
-      [(vector ,t) `(vector ,t)]
-      [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
-      [,bool bool]
-      [,int int]
-      [(coerce ,t0 ,t1) `(coerce ,[unwrap-Type t0] ,[unwrap-Type t1])])
-    (mk-Type : * (t) -> Type ()
-      (cond
-        [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
-        [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
-        [(coerced-type? t) `(coerce ,(mk-Type (cadr t)) ,(mk-Type (caddr t)))]
-        [else t]))
-    (find-type : Expr (expr) -> Expr (t)
-      [(,s ,t) (values expr t)]
-      [(lambda (,s ,t0) ,e ,t1) (values expr t1)]
-      [(lambda-rec (,s ,t0) ,e ,t1 ,t3) (values expr t1)]
-      [(apply ,e0 ,e1 ,t) (values expr t)]
-      [(primfun ,pf ,t) (values expr t)]
-      [(cond (,ca* ...) ,t) (values expr t)]
-      [(vector ,nv ,t) (values expr t)]
-      [(scalar ,n ,t) (values expr t)])
-    (Expr : Expr (expr) -> Expr ()
-      [(apply ,e0 ,e1 ,t)
-       (let-values ([(e0^ t0) (find-type e0)]
-                    [(e1^ t1) (find-type e1)])
-         ;(pretty-print (list (unwrap-Type t0) (unwrap-Type t1)))
-         ;(pretty-print (and (equal? (cadr (unwrap-Type t0)) '(coerce bool int)) (equal? (unwrap-Type t1) '(coerce bool int))))
-         ;(newline)
-         (cond
-           [(and (equal? (cadr (unwrap-Type t0)) '(coerce bool int)) (equal? (unwrap-Type t1) '(coerce bool int)))
-            (let ([T (mk-Type (caddr (unwrap-Type t0)))])
-              `(apply
-                 (lambda (b bool)
-                   (apply
-                     ,[Expr e0^]
-                     (apply
-                       (primfun coerce-bool-int (lambda bool int))
-                       (b bool)
-                       int)
-                     ,T)
-                   (lambda bool ,T))
-                 ,[Expr e1^]
-                 ,T))]
-           [else `(apply ,[Expr e0] ,[Expr e1] ,t)]))]))
-
-
-      ;[(primfun ,pf ,t)
-      ; (let ([t^ (unwrap-Type t)])
-      ;   (cond
-      ;     [(unify (list (list t^ '(lambda (coerce bool int) (typevar T0))))) => (lambda (sub)
-      ;        (let ([T0 (mk-Type (sub '(typevar T0)))])
-      ;          `(lambda (b bool)
-      ;             (apply
-      ;               (primfun ,pf (lambda int ,T0))
-      ;               (apply
-      ;                 (primfun coerce-bool-int (lambda bool int))
-      ;                 (b bool)
-      ;                 int)
-      ;               ,T0)
-      ;             (lambda bool ,T0))))]
-      ;     [else e]))]))
-
   (define-language
     L9
     (extends L8)
-    (Type (t)
-      (- (coerce t0 t1))))
+    (Expr (e)
+      (- (coerce e t))))
 
-  (define-pass remove-coerced-types : L8 (e) -> L9 ()
+  (define-pass coerce-values : L8 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
       [(vector ,t) `(vector ,t)]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,bool bool]
-      [,int int]
-      [(coerce ,t0 ,t1) `(coerce ,[unwrap-Type t0] ,[unwrap-Type t1])])
+      [,int int])
     (mk-Type : * (t) -> Type ()
       (cond
         [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
         [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
         [else t]))
-    (Type : Type (t) -> Type ()
-      [(lambda ,t0 ,t1)
-       (let ([t0^ (unwrap-Type t0)])
-         (cond
-           [(coerced-type? t0^)
-            `(lambda ,[mk-Type (caddr t0^)] ,[Type t1])]
-           [else `(lambda ,[Type t0] ,[Type t1])]))]
-      [(coerce ,t0 ,t1) (Type t0)])
+    (find-type : Expr (expr) -> * ()
+      [(,s ,t) t]
+      [(lambda (,s ,t0) ,e ,t1) t1]
+      [(lambda-rec (,s ,t0) ,e ,t1 ,t3) t1]
+      [(apply ,e0 ,e1 ,t) t]
+      [(primfun ,pf ,t) t]
+      [(cond (,ca* ...) ,t) t]
+      [(vector ,nv ,t) t]
+      [(scalar ,n ,t) t]
+      [(coerce ,e ,t) t])
     (Expr : Expr (expr) -> Expr ()
-      [(lambda (,s ,t0) ,e ,t1)
-       (let ([t0^ (unwrap-Type t0)]
-             [t1^ (unwrap-Type t1)])
+      [(coerce ,e ,t)
+       (let ([et (unwrap-Type (find-type e))]
+             [ut (unwrap-Type t)])
          (cond
-           [(coerced-type? t0^)
-            (let ([t0^^ (mk-Type (cadr t0^))])
-              `(lambda (,s ,t0^^) ,[Expr e] (lambda ,t0^^ ,[Type (mk-Type (caddr t1^))])))]
-           [else `(lambda (,s ,[Type t0]) ,[Expr e] ,[Type t1])]))]))
+           [(equal? et ut) (Expr e)]
+           [(and (equal? et 'bool) (equal? ut 'int))
+            `(apply
+               (primfun coerce-bool-int (lambda bool int))
+               ,[Expr e]
+               int)]
+           [else (error 'coerce-values "unsupported coercion" et ut)]))]))
+
 
   (define-pass expand-idioms : L9 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
@@ -1063,35 +1013,15 @@
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,bool bool]
       [,int int])
-      ;[(coerce ,t0 ,t1) `(coerce ,[unwrap-Type t0] ,[unwrap-Type t1])])
     (mk-Type : * (t) -> Type ()
       (cond
         [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
         [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
-        ;[(coerced-type? t) `(coerce ,(mk-Type (cadr t)) ,(mk-Type (caddr t)))]
         [else t]))
     (Expr : Expr (e) -> Expr ()
       [(primfun ,pf ,t)
        (let ([t^ (unwrap-Type t)])
          (cond
-           ;[(and (equal? pf 'plus) (equal? '(lambda bool (lambda bool int)) t^))
-           ; `(lambda (r bool)
-           ;    (lambda (l bool)
-           ;      (apply
-           ;        (apply
-           ;          (primfun plus (lambda int (lambda int int)))
-           ;          (apply
-           ;            (primfun coerce-bool-int (lambda bool int))
-           ;            (r bool)
-           ;            int)
-           ;          (lambda int int))
-           ;        (apply
-           ;          (primfun coerce-bool-int (lambda bool int))
-           ;          (l bool)
-           ;          int)
-           ;        int)
-           ;      (lambda bool int))
-           ;    (lambda bool (lambda bool int)))]
            ; -2 -> 0-2
            [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
             `(lambda (x int)
@@ -1275,7 +1205,6 @@
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,int int]
       [,bool bool])
-      ;[(coerce ,t0 ,t1) `(coerce ,[unwrap-Type t0] ,[unwrap-Type t1])])
     (Expr : Expr (expr ctx) -> Expr (t)
       [(,s ,t)
        (let ([t^ (unwrap-Type t)])
@@ -1590,10 +1519,10 @@
     (untype
       (type-check
         (expand-idioms
-          (remove-coerced-types
-            (coerce-values
-              (unify-and-substitute-types
-                (derive-type-constraints
+          (coerce-values
+            (unify-and-substitute-types
+              (derive-type-constraints
+                (add-coercion-points
                   (type-lambda-abstractions
                     (introduce-fresh-typevars
                       (type-scalars-and-vectors
