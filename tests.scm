@@ -70,6 +70,8 @@
     (make-test-case "reduce02"   "]-/1 2 3"                           #f                 "2")
     (make-test-case "reduce03"   "]{w-a}/1 2 3"                       #f                 "0")
     (make-test-case "reduce04"   "]+/2<!5"                            #f                 "2")
+    (make-test-case "reduce05"   "]&/0<1 2 3"                         #f                 "1")
+    (make-test-case "reduce06"   "]&/0<1 0 3"                         #f                 "0")
     (make-test-case "input01"    "]1:"                                "7"                "7")
     (make-test-case "input02"    "]0:"                                "1 2 3"            "1 2 3")
     (make-test-case "input03"    "](1:)+1"                            "7"                "8")
