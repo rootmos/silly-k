@@ -14,15 +14,18 @@
           introduce-let-spine            unparse-L3-spine-intermediate
           translate-L3-spine-intermediate-into-L3-spine  unparse-L3-spine
           remove-lets                    unparse-L3-without-let
+          disable-let-binding
           type-scalars-and-vectors       unparse-L4
           pick-spine-values              unparse-L3-picked-spine-values
           introduce-fresh-typevars       unparse-L5
           type-lambda-abstractions       unparse-L6
+          add-coercion-points            unparse-L6-with-coercion
           derive-type-constraints        unparse-L7
           unify-and-substitute-types     unparse-L8
+          coerce-values                  unparse-L9
           expand-idioms
           type-check
-          untype                         unparse-L9
+          untype                         unparse-L10
           output-malfunction
           output-scheme
           )
@@ -44,17 +47,20 @@
       (translate-L3-spine-intermediate-into-L3-spine . unparse-L3-spine)
       (pick-spine-values                             . unparse-L3-picked-spine-values)
       (remove-lets                                   . unparse-L3-without-let)
+      ;(disable-let-binding                           . unparse-L3-without-let)
       (type-scalars-and-vectors                      . unparse-L4)
       (introduce-fresh-typevars                      . unparse-L5)
       (type-lambda-abstractions                      . unparse-L6)
+      (add-coercion-points                           . unparse-L6-with-coercion)
       (derive-type-constraints                       . unparse-L7)
       (unify-and-substitute-types                    . unparse-L8)
-      (type-check                                    . unparse-L8)
-      (expand-idioms                                 . unparse-L8)
-      (type-check                                    . unparse-L8)
-      (untype                                        . unparse-L9)
-      ;(output-scheme                                . id)
-      (output-malfunction                            . id)
+      (coerce-values                                 . unparse-L9)
+      (type-check                                    . unparse-L9)
+      (expand-idioms                                 . unparse-L9)
+      (type-check                                    . unparse-L9)
+      (untype                                        . unparse-L10)
+      (output-scheme                                . id)
+      ;(output-malfunction                            . id)
       ))
 
 
@@ -291,8 +297,7 @@
       (1 . input-scalar)
       (3 . display)
       (4 . output-vector)
-      (5 . output-scalar)
-      (6 . output-bool)))
+      (5 . output-scalar)))
 
   (define primfun?
     (lambda (x)
@@ -512,6 +517,8 @@
       (+ (scalar n t))
       ))
 
+  (define-pass disable-let-binding : L3 (e) -> L3-without-let ())
+
   (define-pass type-scalars-and-vectors : L3-without-let (e) -> L4 ()
     (Expr : Expr (e) -> Expr ()
       [(vector ,nv) `(vector ,nv (vector int))]
@@ -536,6 +543,7 @@
       (- (cond (ca* ...)))
       (+ (cond (ca* ...) t))
       ))
+
 
   (define-pass introduce-fresh-typevars : L4 (e) -> L5 ()
     (definitions
@@ -674,11 +682,32 @@
        (let-values ([(e^ t env) (Expr e '())])
          `(program ,e^ ,t))]))
 
+
+  (define-language
+    L6-with-coercion
+    (extends L6)
+    (Expr (e)
+      (+ (coerce e t))))
+
+  (define-pass add-coercion-points : L6 (e) -> L6-with-coercion ()
+    (definitions
+      (define typevar-counter 0)
+      (with-output-language (L6-with-coercion Type)
+        (define fresh-typevar
+          (lambda ()
+            (let ([c typevar-counter])
+              (set! typevar-counter (+ c 1))
+              `(typevar ,(string->symbol (format "C~s" c))))))))
+    (Type : Type (t) -> Type ())
+    (Expr : Expr (expr) -> Expr ()
+      [(apply ,e0 ,e1 ,t)
+       `(apply ,[Expr e0] (coerce ,[Expr e1] ,[fresh-typevar]) ,[Type t])]))
+
   (define (bool? e) (eqv? e 'bool))
 
   (define-language
     L7
-    (extends L6)
+    (extends L6-with-coercion)
     (terminals
       (+ (bool (bool))))
     (Type (t)
@@ -690,7 +719,7 @@
       (- (program e t))
       (+ (program e t (c* ...)))))
 
-  (define-pass derive-type-constraints : L6 (e) -> L7 ()
+  (define-pass derive-type-constraints : L6-with-coercion (e) -> L7 ()
     (definitions
       ; TODO: move the introduction of these type-variables to earlier pass
       (define typevar-counter 0)
@@ -705,16 +734,13 @@
         (define primfun-types-table
           (list
             (cons 'plus         (list `(lambda int (lambda int int))
-                                      `(lambda bool (lambda bool int))
                                       `(lambda int (lambda (vector int) (vector int)))
                                       `(lambda (vector int) (lambda int (vector int)))
                                       `(lambda (vector int) (lambda (vector int) (vector int)))))
             (cons 'input-vector `(vector int))
             (cons 'input-scalar 'int)
             (cons 'display      (list `(lambda int int)
-                                      `(lambda (vector int) (vector int))
-                                      `(lambda bool bool)
-                                      `(lambda (vector bool) (vector bool))))
+                                      `(lambda (vector int) (vector int))))
             (cons 'map          (list (lambda ()
                                         (let ([a (fresh-typevar)]
                                               [b (fresh-typevar)])
@@ -727,10 +753,9 @@
                                           `(lambda (lambda ,a (lambda ,b ,c))
                                              (lambda (vector ,a)
                                              (lambda ,b (vector ,c))))))))
-            (cons 'reduce       (list (lambda ()
+            (cons 'reduce       (lambda ()
                                         (let ([a (fresh-typevar)])
-                                          `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a))))
-                                      `(lambda (lambda int (lambda int int)) (lambda (vector bool) int))))
+                                          `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a)))))
             (cons 'minus        (list
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
@@ -767,7 +792,11 @@
         (define (mk-bool-constraint t) `(,t bool))
         (define (mk-constraint t0 t1) `(,t0 ,t1))
         (define (mk-overloading t0 t*)
-          `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))))
+          `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))
+        (define (mk-coerce-constraint t0 t1)
+          `(overloaded (lambda ,t0 ,t1) ((lambda ,t0 ,t0)
+                                         (lambda bool int)
+                                         (lambda (vector bool) (vector int)))))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -801,6 +830,11 @@
        (let*-values ([(e^ et^ cs^) (Expr e cs)])
          (let ([t1^ (Type t1)] [t2^ (Type t2)])
            (values `(lambda-rec (,s ,(Type t0)) ,e^ ,t1^ ,t2^) t1^ (cons (mk-constraint t1^ t2^) cs^))))]
+      [(coerce ,e ,t)
+       (let-values ([(e^ et^ cs^) (Expr e cs)])
+         (let* ([t^ (Type t)]
+                [cs^^ (cons (mk-coerce-constraint et^ t^) cs^)])
+           (values `(coerce ,e^ ,t^) t^ cs^^)))]
       [(cond (,ca* ...) ,t)
        (let* ([t^ (Type t)]
               [cas-cs (fold-left
@@ -876,7 +910,7 @@
                      [(and (typevar-type? s) (not (occurs s t)))
                       (cond
                         [(unify (substitute s t cs^)) => (lambda (f)
-                                                           (lambda (x) (f (substitute s t x))))]
+                                                            (lambda (x) (f (substitute s t x))))]
                         [else #f])]
                      [(and (typevar-type? t) (not (occurs t s)))
                       (cond
@@ -890,9 +924,9 @@
                      [else #f]))])
         (if (overloaded-constraint? c)
           (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
-            (if (= 1 (length alts))
-              (car alts)
-              #f))
+            (if (null? alts)
+              #f
+              (car alts)))
           (let ([s (car c)] [t (cadr c)]) (go s t))))))
 
   (define-language
@@ -930,7 +964,56 @@
            [else (error 'unify-and-substitute-types "unable to unify types" cs)]
           ))]))
 
-  (define-pass expand-idioms : L8 (e) -> L8 ()
+  (define-language
+    L9
+    (extends L8)
+    (Expr (e)
+      (- (coerce e t))))
+
+  (define-pass coerce-values : L8 (e) -> L9 ()
+    (unwrap-Type : Type (t) -> * ()
+      [(vector ,t) `(vector ,t)]
+      [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
+      [,bool bool]
+      [,int int])
+    (mk-Type : * (t) -> Type ()
+      (cond
+        [(lambda-type? t) `(lambda ,(mk-Type (cadr t)) ,(mk-Type (caddr t))) ]
+        [(vector-type? t) `(vector ,(mk-Type (cadr t)))]
+        [else t]))
+    (find-type : Expr (expr) -> * ()
+      [(,s ,t) t]
+      [(lambda (,s ,t0) ,e ,t1) t1]
+      [(lambda-rec (,s ,t0) ,e ,t1 ,t3) t1]
+      [(apply ,e0 ,e1 ,t) t]
+      [(primfun ,pf ,t) t]
+      [(cond (,ca* ...) ,t) t]
+      [(vector ,nv ,t) t]
+      [(scalar ,n ,t) t]
+      [(coerce ,e ,t) t])
+    (Expr : Expr (expr) -> Expr ()
+      [(coerce ,e ,t)
+       (let ([et (unwrap-Type (find-type e))]
+             [ut (unwrap-Type t)])
+         (cond
+           [(equal? et ut) (Expr e)]
+           [(and (equal? et 'bool) (equal? ut 'int))
+            `(apply
+               (primfun coerce-bool-int (lambda bool int))
+               ,[Expr e]
+               int)]
+           [(and (equal? et '(vector bool)) (equal? ut '(vector int)))
+            `(apply
+               (apply
+                 (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
+                 (primfun coerce-bool-int (lambda bool int))
+                 (lambda (vector bool) (vector int)))
+               ,[Expr e]
+               (vector int))]
+           [else (error 'coerce-values "unsupported coercion" et ut)]))]))
+
+
+  (define-pass expand-idioms : L9 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
       [(vector ,t) `(vector ,t)]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
@@ -945,24 +1028,6 @@
       [(primfun ,pf ,t)
        (let ([t^ (unwrap-Type t)])
          (cond
-           [(and (equal? pf 'plus) (equal? '(lambda bool (lambda bool int)) t^))
-            `(lambda (r bool)
-               (lambda (l bool)
-                 (apply
-                   (apply
-                     (primfun plus (lambda int (lambda int int)))
-                     (apply
-                       (primfun coerce-bool-int (lambda bool int))
-                       (r bool)
-                       int)
-                     (lambda int int))
-                   (apply
-                     (primfun coerce-bool-int (lambda bool int))
-                     (l bool)
-                     int)
-                   int)
-                 (lambda bool int))
-               (lambda bool (lambda bool int)))]
            ; -2 -> 0-2
            [(and (equal? pf 'minus) (equal? '(lambda int int) t^))
             `(lambda (x int)
@@ -1064,27 +1129,6 @@
                `(primfun output-scalar (lambda int int))]
               [(equal? '(lambda (vector int) (vector int)) t^)
                `(primfun output-vector (lambda (vector int) (vector int)))]
-              [(equal? '(lambda bool bool) t^)
-               `(primfun output-bool (lambda bool bool))]
-              [(equal? '(lambda (vector bool) (vector bool)) t^)
-               `(lambda (xs (vector bool))
-                  (apply
-                    (apply
-                      (primfun kite (lambda (vector int) (lambda (vector bool) (vector bool))))
-                      (apply
-                        (primfun output-vector (lambda (vector int) (vector int)))
-                        (apply
-                          (apply
-                            (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
-                            (primfun coerce-bool-int (lambda bool int))
-                            (lambda (vector bool) (vector int)))
-                          (xs (vector bool))
-                          (vector int))
-                        (vector int))
-                      (lambda (vector bool) (vector bool)))
-                    (xs (vector bool))
-                    (vector bool))
-                  (lambda (vector bool) (vector bool)))]
               [else (error 'expand-idioms "displaying unsupported type" t^)])]
            [(and (equal? pf 'min) (equal? '(lambda bool (lambda bool bool)) t^))
             `(primfun and ,(mk-Type t^))]
@@ -1119,28 +1163,9 @@
                  (lambda (vector int) (lambda int (vector int))))
                (lambda (lambda int (lambda int int))
                  (lambda (vector int) (lambda int (vector int)))))]
-           [(and (equal? pf 'reduce) (equal? '(lambda (lambda int (lambda int int)) (lambda (vector bool) int)) t^))
-            `(lambda (f (lambda int (lambda int int)))
-               (lambda (bs (vector bool))
-                 (apply
-                   (apply
-                     (primfun reduce (lambda (lambda int (lambda int int)) (lambda (vector int) int)))
-                     (primfun plus (lambda int (lambda int int)))
-                     (lambda (vector int) int))
-                   (apply
-                     (apply
-                       (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
-                       (primfun coerce-bool-int (lambda bool int))
-                       (lambda (vector bool) (vector int)))
-                     (bs (vector bool))
-                     (vector int))
-                   int)
-                 (lambda (vector bool) int))
-               (lambda (lambda int (lambda int int)) (lambda (vector bool) int)))]
-           [else e]))]
-      ))
+           [else e]))]))
 
-  (define-pass type-check : L8 (e) -> L8 ()
+  (define-pass type-check : L9 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
       [(vector ,t) `(vector ,t)]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
@@ -1168,7 +1193,7 @@
                  (equal? (caddr t0^) ut))
             (values expr ut)]
            [else (error 'type-check "type error in application"
-                        (list (unparse-L8 e0^) t0^) (list (unparse-L8 e1^) t1^) ut)]))]
+                        (list (unparse-L9 e0^) t0^) (list (unparse-L9 e1^) t1^) ut)]))]
       [(lambda (,s ,t0) ,e ,t1)
        (let*-values ([(ut0) (unwrap-Type t0)]
                      [(e^ t^) (Expr e (cons (cons s ut0) ctx))]
@@ -1179,7 +1204,7 @@
                 (equal? (caddr ut1) t^))
             (values expr ut1)]
            [else (error 'type-check "type error in lambda"
-                        (list s ut0) (list (unparse-L8 e^) t^) ut1)]))]
+                        (list s ut0) (list (unparse-L9 e^) t^) ut1)]))]
       [(lambda-rec (,s ,t0) ,e ,t1 ,t2)
        (let*-values ([(ut0) (unwrap-Type t0)]
                      [(ut1) (unwrap-Type t1)]
@@ -1192,7 +1217,7 @@
                 (equal? ut1 ut2))
             (values expr ut1)]
            [else (error 'type-check "type error in lambda-rec"
-                        (list s ut0) (list (unparse-L8 e^) t^) ut1)]))]
+                        (list s ut0) (list (unparse-L9 e^) t^) ut1)]))]
       [(cond (,ca* ...) ,t)
        (let ([t^ (unwrap-Type t)])
          (for-all (lambda (ca) (CondArm ca t^ ctx)) ca*)
@@ -1206,15 +1231,15 @@
            [else
              (if (not (equal? t0 'bool))
                (error 'type-check "type error in cond-arm, condition should have type bool"
-                      (unparse-L8 e0^) t0)
+                      (unparse-L9 e0^) t0)
                (error 'type-check "type error in cond-arm, body's type does not conform"
-                      (unparse-L8 e1^) t1 t))]))]
+                      (unparse-L9 e1^) t1 t))]))]
       [(else ,e)
        (let*-values ([(e^ t^) (Expr e ctx)])
          (cond
            [(equal? t t^) ca]
            [else (error 'type-check "type error in cond-arm, else body's type does not conform"
-                        (unparse-L8 e^) t^ t)]))])
+                        (unparse-L9 e^) t^ t)]))])
     (Program : Program (p) -> Program ()
       [(program ,e ,t)
        (let-values ([(e^ t^) (Expr e '())])
@@ -1224,8 +1249,8 @@
              [else (error 'type-check "type error in program" (list e ut) (list e^ t^))])))]))
 
   (define-language
-    L9
-    (extends L8)
+    L10
+    (extends L9)
     (terminals
       (- (int (int))))
     (Type (t)
@@ -1253,7 +1278,7 @@
       (- (program e t))
       (+ (program e))))
 
-  (define-pass untype : L8 (e) -> L9 ()
+  (define-pass untype : L9 (e) -> L10 ()
     (CondArm : CondArm (ca) -> CondArm ())
     (Expr : Expr (e) -> Expr ()
       [(,s ,t) s]
@@ -1269,7 +1294,7 @@
        `(program ,(Expr e))]))
 
 
-  (define-pass output-scheme : L9 (e) -> * ()
+  (define-pass output-scheme : L10 (e) -> * ()
     (CondArm : CondArm (ca) -> * ()
       [(,e0 ,e1) `(,[Expr e0] ,[Expr e1])]
       [(else ,e) `(else ,[Expr e])])
@@ -1328,8 +1353,6 @@
                                         [else (display " ") (print-vector tail)])))])
                (print-vector x))
              x)]
-         [(equal? pf 'output-bool)
-          '(lambda (b) (display (if b 1 0)) b)]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
@@ -1339,7 +1362,7 @@
       [(program ,e) (Expr e)]))
 
 
-  (define-pass output-malfunction : L9 (e) -> * ()
+  (define-pass output-malfunction : L10 (e) -> * ()
     (definitions
       (define (mlf-symbol s) (string->symbol (format "$~s" s)))
       (define mlf-self (mlf-symbol self))
@@ -1381,7 +1404,6 @@
          [(equal? pf 'input-scalar) `(apply $read_scalar ,mlf-unit)]
          [(equal? pf 'output-scalar) '$write_scalar]
          [(equal? pf 'output-vector) '$write_vector]
-         [(equal? pf 'output-bool) '$write_bool]
          [(equal? pf 'kite) '$kite]
          [(equal? pf 'iota) '$iota]
          [(equal? pf 'coerce-bool-int) '$identity]
@@ -1441,10 +1463,6 @@
                                           (apply (global $Pervasives $print_char) 32)
                                           ,mlf-unit)))
                                     $l))))
-          ($write_bool (lambda ($b)
-                         (switch $b
-                                 (0 (apply $write_scalar 0))
-                                 (_ (apply $write_scalar 1)))))
           ($kite (lambda ($a $b) $b))
           ($identity (lambda ($a) $a))
           ($iota (lambda ($n) (apply (global $Array $init) $n $identity)))
@@ -1460,21 +1478,23 @@
     (untype
       (type-check
         (expand-idioms
-          (unify-and-substitute-types
-            (derive-type-constraints
-              (type-lambda-abstractions
-                (introduce-fresh-typevars
-                  (type-scalars-and-vectors
-                    (remove-lets
-                      (pick-spine-values
-                        (translate-L3-spine-intermediate-into-L3-spine
-                          (introduce-let-spine
-                            (embedd-L3-into-L3-spine-intermediate
-                              (introduce-lambda-abstractions
-                                (translate-to-primfuns
-                                  (differentiate-scalars
-                                    (ast-to-Lsrc
-                                      (parse-silly-k)))))))))))))))))))
+          (coerce-values
+            (unify-and-substitute-types
+              (derive-type-constraints
+                (add-coercion-points
+                  (type-lambda-abstractions
+                    (introduce-fresh-typevars
+                      (type-scalars-and-vectors
+                        (remove-lets
+                          (pick-spine-values
+                            (translate-L3-spine-intermediate-into-L3-spine
+                              (introduce-let-spine
+                                (embedd-L3-into-L3-spine-intermediate
+                                  (introduce-lambda-abstractions
+                                    (translate-to-primfuns
+                                      (differentiate-scalars
+                                        (ast-to-Lsrc
+                                          (parse-silly-k)))))))))))))))))))))
 
 
   (define (compile-to-malfunction)
