@@ -297,8 +297,7 @@
       (1 . input-scalar)
       (3 . display)
       (4 . output-vector)
-      (5 . output-scalar)
-      (6 . output-bool)))
+      (5 . output-scalar)))
 
   (define primfun?
     (lambda (x)
@@ -741,9 +740,7 @@
             (cons 'input-vector `(vector int))
             (cons 'input-scalar 'int)
             (cons 'display      (list `(lambda int int)
-                                      `(lambda (vector int) (vector int))
-                                      `(lambda bool bool)
-                                      `(lambda (vector bool) (vector bool))))
+                                      `(lambda (vector int) (vector int))))
             (cons 'map          (list (lambda ()
                                         (let ([a (fresh-typevar)]
                                               [b (fresh-typevar)])
@@ -756,10 +753,9 @@
                                           `(lambda (lambda ,a (lambda ,b ,c))
                                              (lambda (vector ,a)
                                              (lambda ,b (vector ,c))))))))
-            (cons 'reduce       (list (lambda ()
+            (cons 'reduce       (lambda ()
                                         (let ([a (fresh-typevar)])
-                                          `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a))))
-                                      `(lambda (lambda int (lambda int int)) (lambda (vector bool) int))))
+                                          `(lambda (lambda ,a (lambda ,a ,a)) (lambda (vector ,a) ,a)))))
             (cons 'minus        (list
                                   `(lambda int int)
                                   `(lambda int (lambda int int))
@@ -798,7 +794,9 @@
         (define (mk-overloading t0 t*)
           `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))
         (define (mk-coerce-constraint t0 t1)
-          `(overloaded (lambda ,t0 ,t1) ((lambda ,t0 ,t0) (lambda bool int))))))
+          `(overloaded (lambda ,t0 ,t1) ((lambda ,t0 ,t0)
+                                         (lambda bool int)
+                                         (lambda (vector bool) (vector int)))))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -1004,6 +1002,14 @@
                (primfun coerce-bool-int (lambda bool int))
                ,[Expr e]
                int)]
+           [(and (equal? et '(vector bool)) (equal? ut '(vector int)))
+            `(apply
+               (apply
+                 (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
+                 (primfun coerce-bool-int (lambda bool int))
+                 (lambda (vector bool) (vector int)))
+               ,[Expr e]
+               (vector int))]
            [else (error 'coerce-values "unsupported coercion" et ut)]))]))
 
 
@@ -1123,27 +1129,6 @@
                `(primfun output-scalar (lambda int int))]
               [(equal? '(lambda (vector int) (vector int)) t^)
                `(primfun output-vector (lambda (vector int) (vector int)))]
-              [(equal? '(lambda bool bool) t^)
-               `(primfun output-bool (lambda bool bool))]
-              [(equal? '(lambda (vector bool) (vector bool)) t^)
-               `(lambda (xs (vector bool))
-                  (apply
-                    (apply
-                      (primfun kite (lambda (vector int) (lambda (vector bool) (vector bool))))
-                      (apply
-                        (primfun output-vector (lambda (vector int) (vector int)))
-                        (apply
-                          (apply
-                            (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
-                            (primfun coerce-bool-int (lambda bool int))
-                            (lambda (vector bool) (vector int)))
-                          (xs (vector bool))
-                          (vector int))
-                        (vector int))
-                      (lambda (vector bool) (vector bool)))
-                    (xs (vector bool))
-                    (vector bool))
-                  (lambda (vector bool) (vector bool)))]
               [else (error 'expand-idioms "displaying unsupported type" t^)])]
            [(and (equal? pf 'min) (equal? '(lambda bool (lambda bool bool)) t^))
             `(primfun and ,(mk-Type t^))]
@@ -1178,26 +1163,7 @@
                  (lambda (vector int) (lambda int (vector int))))
                (lambda (lambda int (lambda int int))
                  (lambda (vector int) (lambda int (vector int)))))]
-           [(and (equal? pf 'reduce) (equal? '(lambda (lambda int (lambda int int)) (lambda (vector bool) int)) t^))
-            `(lambda (f (lambda int (lambda int int)))
-               (lambda (bs (vector bool))
-                 (apply
-                   (apply
-                     (primfun reduce (lambda (lambda int (lambda int int)) (lambda (vector int) int)))
-                     (primfun plus (lambda int (lambda int int)))
-                     (lambda (vector int) int))
-                   (apply
-                     (apply
-                       (primfun map (lambda (lambda bool int) (lambda (vector bool) (vector int))))
-                       (primfun coerce-bool-int (lambda bool int))
-                       (lambda (vector bool) (vector int)))
-                     (bs (vector bool))
-                     (vector int))
-                   int)
-                 (lambda (vector bool) int))
-               (lambda (lambda int (lambda int int)) (lambda (vector bool) int)))]
-           [else e]))]
-      ))
+           [else e]))]))
 
   (define-pass type-check : L9 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
@@ -1387,8 +1353,6 @@
                                         [else (display " ") (print-vector tail)])))])
                (print-vector x))
              x)]
-         [(equal? pf 'output-bool)
-          '(lambda (b) (display (if b 1 0)) b)]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
@@ -1440,7 +1404,6 @@
          [(equal? pf 'input-scalar) `(apply $read_scalar ,mlf-unit)]
          [(equal? pf 'output-scalar) '$write_scalar]
          [(equal? pf 'output-vector) '$write_vector]
-         [(equal? pf 'output-bool) '$write_bool]
          [(equal? pf 'kite) '$kite]
          [(equal? pf 'iota) '$iota]
          [(equal? pf 'coerce-bool-int) '$identity]
@@ -1500,10 +1463,6 @@
                                           (apply (global $Pervasives $print_char) 32)
                                           ,mlf-unit)))
                                     $l))))
-          ($write_bool (lambda ($b)
-                         (switch $b
-                                 (0 (apply $write_scalar 0))
-                                 (_ (apply $write_scalar 1)))))
           ($kite (lambda ($a $b) $b))
           ($identity (lambda ($a) $a))
           ($iota (lambda ($n) (apply (global $Array $init) $n $identity)))
