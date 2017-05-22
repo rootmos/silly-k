@@ -765,7 +765,10 @@
             (cons 'star         (list `(lambda int (lambda int int))
                                       `(lambda int (lambda (vector int) (vector int)))
                                       `(lambda (vector int) (lambda int (vector int)))
-                                      `(lambda (vector int) (lambda (vector int) (vector int)))))
+                                      `(lambda (vector int) (lambda (vector int) (vector int)))
+                                      (lambda ()
+                                         (let ([a (fresh-typevar)])
+                                           `(lambda (vector ,a) ,a)))))
             (cons 'equal        (list `(lambda int (lambda int bool))
                                       `(lambda (vector int) (lambda int (vector bool)))
                                       `(lambda int (lambda (vector int) (vector bool)))))
@@ -1136,6 +1139,10 @@
             `(primfun or ,(mk-Type t^))]
            [(and (equal? pf 'star) (equal? '(lambda int (lambda int int)) t^))
             `(primfun multiplication ,(mk-Type t^))]
+           [(and (equal? pf 'star)
+                 (unify (list (list '(lambda (vector (typevar T0)) (typevar T0)) t^)))) => (lambda (sub)
+            (let ([T0 (mk-Type (sub '(typevar T0)))])
+              `(primfun first (lambda (vector ,T0) ,T0))))]
            ; TODO: use unify to match the polymorphic type
            [(and (equal? pf 'map) (equal? '(lambda (lambda int (lambda int int))
                                              (lambda (vector int)
@@ -1319,6 +1326,7 @@
          [(equal? pf 'kite) '(lambda (a) (lambda (b) b))]
          [(equal? pf 'coerce-bool-int) '(lambda (b) (if b 1 0))]
          [(equal? pf 'iota) 'iota]
+         [(equal? pf 'first) 'car]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1406,6 +1414,7 @@
          [(equal? pf 'output-vector) '$write_vector]
          [(equal? pf 'kite) '$kite]
          [(equal? pf 'iota) '$iota]
+         [(equal? pf 'first) '$first]
          [(equal? pf 'coerce-bool-int) '$identity]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
@@ -1465,6 +1474,7 @@
                                     $l))))
           ($kite (lambda ($a $b) $b))
           ($identity (lambda ($a) $a))
+          ($first (lambda ($l) (load $l 0)))
           ($iota (lambda ($n) (apply (global $Array $init) $n $identity)))
           ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
           ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
