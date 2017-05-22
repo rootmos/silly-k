@@ -31,7 +31,6 @@
           )
   (import (nanopass)
           (chezscheme)
-          (silly-k tools)
           (lalr))
 
   (define (id x) x)
