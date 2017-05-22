@@ -126,6 +126,7 @@
             [(char=? c #\=)       (make-lexical-token 'EQUAL location #f)]
             [(char=? c #\_)       (make-lexical-token 'UNDERSCORE location #f)]
             [(char=? c #\!)       (make-lexical-token 'EXCLAMATION location #f)]
+            [(char=? c #\#)       (make-lexical-token 'HASH location #f)]
             [(char-numeric? c)    (make-lexical-token 'NUM location (read-number `(,c)))]
             [(char-alphabetic? c) (make-lexical-token 'ATOM location (read-atom `(,c)))]
             [else (error 'lex "Unrecognized character" c)])))))
@@ -138,7 +139,7 @@
                  SLASH QUOTE COLON NEWLINE LBRACE RBRACE
                  ATOM LBRACKET RBRACKET AT EQUAL SEMICOLON
                  UNDERSCORE PIPE AMPERSAND TILDE STAR
-                 LESS MORE EXCLAMATION)
+                 LESS MORE EXCLAMATION HASH)
                 (statement (expr) : $1
                            (expr NEWLINE) : $1)
                 (expr (expr AT expr) : `(apply ,$1 #f ,$3)
@@ -165,6 +166,7 @@
                       (LESS) : 'less
                       (MORE) : 'more
                       (EXCLAMATION) : 'iota
+                      (HASH) : 'shape
                       (NUM COLON) : `(system ,$1)
                       (RBRACKET) : '(system 3)
                       (LBRACE cond RBRACE) : `(dfn (cond . ,$2))
@@ -185,7 +187,7 @@
 
   (define verb?
     (lambda (x)
-      (not (not (memq x '(plus minus colon equal max min negation star less more iota))))))
+      (not (not (memq x '(plus minus colon equal max min negation star less more iota shape))))))
 
   (define adverb?
     (lambda (x)
@@ -291,6 +293,7 @@
       (less . less)
       (more . more)
       (iota . iota)
+      (shape . shape)
       (negation . negation)
       (star . star)
       (0 . input-vector)
@@ -786,6 +789,15 @@
                                       `(lambda int bool)
                                       `(lambda (vector bool) (vector bool))))
             (cons 'iota         `(lambda int (vector int)))
+            (cons 'shape        (list (lambda ()
+                                        (let ([a (fresh-typevar)])
+                                          `(lambda (vector ,a) (lambda int (vector ,a)))))
+                                      (lambda ()
+                                        (let ([a (fresh-typevar)])
+                                          `(lambda ,a (lambda int (vector ,a)))))
+                                      (lambda ()
+                                        (let ([a (fresh-typevar)])
+                                             `(lambda (vector ,a) int)))))
             )))
       (define (fresh-type-instance t)
         (cond
@@ -1170,6 +1182,18 @@
                  (lambda (vector int) (lambda int (vector int))))
                (lambda (lambda int (lambda int int))
                  (lambda (vector int) (lambda int (vector int)))))]
+           [(and (equal? pf 'shape)
+                 (unify (list (list '(lambda (vector (typevar T0)) int) t^)))) => (lambda (sub)
+            (let ([T0 (mk-Type (sub '(typevar T0)))])
+              `(primfun length (lambda (vector ,T0) int))))]
+           [(and (equal? pf 'shape)
+                 (unify (list (list '(lambda (vector (typevar T0)) (lambda int (vector (typevar T0)))) t^)))) => (lambda (sub)
+            (let ([T0 (mk-Type (sub '(typevar T0)))])
+              `(primfun reshape (lambda (vector ,T0) (lambda int (vector ,T0))))))]
+           [(and (equal? pf 'shape)
+                 (unify (list (list '(lambda (typevar T0) (lambda int (vector (typevar T0)))) t^)))) => (lambda (sub)
+            (let ([T0 (mk-Type (sub '(typevar T0)))])
+              `(primfun make-vector (lambda ,T0 (lambda int (vector ,T0))))))]
            [else e]))]))
 
   (define-pass type-check : L9 (e) -> L9 ()
@@ -1327,6 +1351,7 @@
          [(equal? pf 'coerce-bool-int) '(lambda (b) (if b 1 0))]
          [(equal? pf 'iota) 'iota]
          [(equal? pf 'first) 'car]
+         [(equal? pf 'length) 'length]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1361,6 +1386,17 @@
                                         [else (display " ") (print-vector tail)])))])
                (print-vector x))
              x)]
+         [(equal? pf 'reshape)
+          '(lambda (xs)
+             (lambda (n)
+               (letrec [(go (lambda (acc ys i)
+                              (cond
+                                [(= 0 i) (reverse acc)]
+                                [else
+                                  (let ([ys^ (if (null? ys) xs ys)])
+                                    (go (cons (car ys^) acc) (cdr ys^) (- i 1)))])))]
+                 (go '() xs n))))]
+         [(equal? pf 'make-vector) '(lambda (a) (lambda (n) (make-list n a)))]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
@@ -1415,6 +1451,9 @@
          [(equal? pf 'kite) '$kite]
          [(equal? pf 'iota) '$iota]
          [(equal? pf 'first) '$first]
+         [(equal? pf 'length) '$length]
+         [(equal? pf 'reshape) '$reshape]
+         [(equal? pf 'make-vector) '$make_vector]
          [(equal? pf 'coerce-bool-int) '$identity]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
@@ -1475,10 +1514,15 @@
           ($kite (lambda ($a $b) $b))
           ($identity (lambda ($a) $a))
           ($first (lambda ($l) (load $l 0)))
+          ($length (lambda ($l) (length $l)))
           ($iota (lambda ($n) (apply (global $Array $init) $n $identity)))
           ($max (lambda ($y $x) (switch (< $x $y) (0 $x) (_ $y))))
           ($min (lambda ($y $x) (switch (< $x $y) (0 $y) (_ $x))))
           ($not (lambda ($x) (switch $x (0 1) (_ 0))))
+          ($reshape (lambda ($xs $n)
+                      (let ($l (length $xs))
+                        (apply (global $Array $init) $n (lambda ($i) (load $xs (% $i $l)))))))
+          ($make_vector (lambda ($a $n) (makevec $n $a)))
           (_ ,[Expr e])
           (_ (apply (global $Pervasives $print_newline) ,mlf-unit))
           (export))
