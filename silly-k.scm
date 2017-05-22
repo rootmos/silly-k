@@ -987,7 +987,7 @@
 
   (define-pass coerce-values : L8 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
-      [(vector ,t) `(vector ,t)]
+      [(vector ,t) `(vector ,(unwrap-Type t))]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,bool bool]
       [,int int])
@@ -1030,7 +1030,7 @@
 
   (define-pass expand-idioms : L9 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
-      [(vector ,t) `(vector ,t)]
+      [(vector ,t) `(vector ,(unwrap-Type t))]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,bool bool]
       [,int int])
@@ -1198,7 +1198,7 @@
 
   (define-pass type-check : L9 (e) -> L9 ()
     (unwrap-Type : Type (t) -> * ()
-      [(vector ,t) `(vector ,t)]
+      [(vector ,t) `(vector ,(unwrap-Type t))]
       [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
       [,int int]
       [,bool bool])
