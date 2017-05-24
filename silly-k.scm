@@ -953,7 +953,7 @@
                                            [(unify (append (car alts) cs^))]
                                            [else (find-first (cdr alts))])]))])
             (find-first (cdr c)))
-          (let ([s (car c)] [t (cadr c)]) (go s t)))))))
+          (let ([s (car c)] [t (cadr c)]) (go s t))))))
 
   (define-language
     L8
