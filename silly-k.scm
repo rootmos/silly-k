@@ -703,7 +703,7 @@
     (Type : Type (t) -> Type ())
     (Expr : Expr (expr) -> Expr ()
       [(apply ,e0 ,e1 ,t)
-       `(apply ,[Expr e0] (coerce ,[Expr e1] ,[fresh-typevar]) ,[Type t])]))
+       `(apply (coerce ,[Expr e0] ,[fresh-typevar]) (coerce ,[Expr e1] ,[fresh-typevar]) ,[Type t])]))
 
   (define (bool? e) (eqv? e 'bool))
 
@@ -714,9 +714,11 @@
       (+ (bool (bool))))
     (Type (t)
       (+ bool))
+    (Constraints (cs)
+      (+ (c ...)))
     (Constraint (c)
       (+ (t0 t1))
-      (+ (overloaded t0 (t* ...))))
+      (+ (overloaded cs* ...)))
     (Program (p)
       (- (program e t))
       (+ (program e t (c* ...)))))
@@ -806,11 +808,13 @@
         (define (mk-bool-constraint t) `(,t bool))
         (define (mk-constraint t0 t1) `(,t0 ,t1))
         (define (mk-overloading t0 t*)
-          `(overloaded ,t0 (,[map fresh-type-instance  t*] ...)))
+          `(overloaded ,[map (lambda (t1) `((,t0 ,(fresh-type-instance t1)))) t*] ...))
         (define (mk-coerce-constraint t0 t1)
-          `(overloaded (lambda ,t0 ,t1) ((lambda ,t0 ,t0)
-                                         (lambda bool int)
-                                         (lambda (vector bool) (vector int)))))))
+          (let ([a (fresh-typevar)])
+            `(overloaded (((lambda ,t0 ,t1) (lambda ,t0 ,t0)))
+                         (((lambda ,t0 ,t1) (lambda bool int)))
+                         (((lambda ,t0 ,t1) (lambda (vector bool) (vector int))))
+                         ((,t0 (vector ,a)) (,t1 (lambda int ,a))))))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -897,7 +901,7 @@
     (and (list? x) (= 2 (length x)) (equal? 'vector (car x))))
 
   (define (overloaded-constraint? x)
-    (and (list? x) (= 3 (length x)) (equal? 'overloaded (car x))))
+    (and (pair? x) (equal? 'overloaded (car x))))
 
   (define (occurs x xs)
     (cond
@@ -907,8 +911,13 @@
   (define (substitute x y xs)
     (cond
       [(lambda-type? xs) (cons 'lambda (map (lambda (ys) (substitute x y ys)) (cdr xs)))]
+      [(vector-type? xs) (list 'vector (substitute x y (cadr xs)))]
       [(overloaded-constraint? xs)
-       (list 'overloaded (substitute x y (cadr xs)) (map (lambda (ys) (substitute x y ys)) (caddr xs)))]
+       (cons 'overloaded (map (lambda (cs)
+                                (map
+                                  (lambda (c) (list (substitute x y (car c)) (substitute x y (cadr c))))
+                                  cs))
+                              (cdr xs)))]
       [(and (typevar-type? xs) (equal? x xs)) y]
       [(list? xs) (map (lambda (ys) (substitute x y ys)) xs)]
       [else xs]))
@@ -937,11 +946,14 @@
                       (unify (append (list (list (cadr s) (cadr t))) cs^))]
                      [else #f]))])
         (if (overloaded-constraint? c)
-          (let ([alts (filter (lambda (x) x) (map (lambda (s) (go (cadr c) s)) (caddr c)))])
-            (if (null? alts)
-              #f
-              (car alts)))
-          (let ([s (car c)] [t (cadr c)]) (go s t))))))
+          (letrec ([find-first (lambda (alts)
+                                 (cond
+                                   [(null? alts) #f]
+                                   [else (cond
+                                           [(unify (append (car alts) cs^))]
+                                           [else (find-first (cdr alts))])]))])
+            (find-first (cdr c)))
+          (let ([s (car c)] [t (cadr c)]) (go s t)))))))
 
   (define-language
     L8
@@ -950,9 +962,11 @@
       (- (typevar (tv))))
     (Type (t)
       (- (typevar tv)))
+    (Constraints (cs)
+      (- (c ...)))
     (Constraint (c)
       (- (t0 t1))
-      (- (overloaded t0 (t* ...))))
+      (- (overloaded cs* ...)))
     (Program (p)
       (- (program e t (c* ...)))
       (+ (program e t))))
@@ -1024,6 +1038,13 @@
                  (lambda (vector bool) (vector int)))
                ,[Expr e]
                (vector int))]
+           [(and (vector-type? et) (lambda-type? ut) (equal? (cadr ut) 'int)
+                 (equal? (cadr et) (caddr ut)))
+            (let ([a (mk-Type (cadr et))])
+              `(apply
+                 (primfun at (lambda (vector ,a) (lambda int ,a)))
+                 ,[Expr e]
+                 (lambda int ,a)))]
            [else (error 'coerce-values "unsupported coercion" et ut)]))]))
 
 
@@ -1351,6 +1372,7 @@
          [(equal? pf 'iota) 'iota]
          [(equal? pf 'first) 'car]
          [(equal? pf 'length) 'length]
+         [(equal? pf 'at) '(lambda (xs) (lambda (n) (list-ref xs n)))]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1454,6 +1476,7 @@
          [(equal? pf 'reshape) '$reshape]
          [(equal? pf 'make-vector) '$make_vector]
          [(equal? pf 'coerce-bool-int) '$identity]
+         [(equal? pf 'at) '$at]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1522,6 +1545,7 @@
                       (let ($l (length $xs))
                         (apply (global $Array $init) $n (lambda ($i) (load $xs (% $i $l)))))))
           ($make_vector (lambda ($a $n) (makevec $n $a)))
+          ($at (lambda ($xs $n) (load $xs $n)))
           (_ ,[Expr e])
           (_ (apply (global $Pervasives $print_newline) ,mlf-unit))
           (export))

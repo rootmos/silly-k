@@ -69,6 +69,7 @@
     (make-test-case "shape02"    "]#1 2 3 4"                          #f                 "4")
     (make-test-case "shape03"    "]4#1 2"                             #f                 "1 2 1 2")
     (make-test-case "shape04"    "]3#1"                               #f                 "1 1 1")
+    (make-test-case "at01"       "]1 2 3@1"                           #f                 "2")
     (make-test-case "over01"     "]@{w+1}'1 2 3"                      #f                 "2 3 4")
     (make-test-case "over02"     "]@{1-w}'3 4 5"                      #f                 "-2 -3 -4")
     (make-test-case "over03"     "]2{a+w}'3 4 5"                      #f                 "5 6 7")
