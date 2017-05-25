@@ -814,7 +814,8 @@
             `(overloaded (((lambda ,t0 ,t1) (lambda ,t0 ,t0)))
                          (((lambda ,t0 ,t1) (lambda bool int)))
                          (((lambda ,t0 ,t1) (lambda (vector bool) (vector int))))
-                         ((,t0 (vector ,a)) (,t1 (lambda int ,a))))))))
+                         ((,t0 (vector ,a)) (,t1 (lambda int ,a)))
+                         ((,t0 (vector ,a)) (,t1 (lambda (vector int) (vector ,a)))))))))
     (Expr : Expr (e cs) -> Expr (t cs)
       [(,s ,t) (let ([t^ (Type t)]) (values `(,s ,t^) t^ cs))]
       [(primfun ,pf ,t)
@@ -1045,6 +1046,13 @@
                  (primfun at (lambda (vector ,a) (lambda int ,a)))
                  ,[Expr e]
                  (lambda int ,a)))]
+           [(and (vector-type? et) (lambda-type? ut) (equal? (cadr ut) '(vector int))
+                 (equal? (cadr et) (cadr (caddr ut))))
+            (let ([a (mk-Type (cadr et))])
+              `(apply
+                 (primfun at-vector (lambda (vector ,a) (lambda (vector int) (vector ,a))))
+                 ,[Expr e]
+                 (lambda (vector int) (vector ,a))))]
            [else (error 'coerce-values "unsupported coercion" et ut)]))]))
 
 
@@ -1373,6 +1381,15 @@
          [(equal? pf 'first) 'car]
          [(equal? pf 'length) 'length]
          [(equal? pf 'at) '(lambda (xs) (lambda (n) (list-ref xs n)))]
+         [(equal? pf 'at-vector)
+          '(lambda (xs)
+             (lambda (is)
+               (letrec ([go (lambda (js acc)
+                              (cond
+                                [(null? js) (reverse acc)]
+                                [else (go (cdr js)
+                                          (cons (list-ref xs (car js)) acc))]))])
+                 (go is '()))))]
          [(equal? pf 'reduce)
           '(lambda (f)
             (lambda (xs)
@@ -1477,6 +1494,7 @@
          [(equal? pf 'make-vector) '$make_vector]
          [(equal? pf 'coerce-bool-int) '$identity]
          [(equal? pf 'at) '$at]
+         [(equal? pf 'at-vector) '$at_vector]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1546,6 +1564,10 @@
                         (apply (global $Array $init) $n (lambda ($i) (load $xs (% $i $l)))))))
           ($make_vector (lambda ($a $n) (makevec $n $a)))
           ($at (lambda ($xs $n) (load $xs $n)))
+          ($at_vector (lambda ($xs $is)
+                        (apply (global $Array $init)
+                               (length $is)
+                               (lambda ($i) (load $xs (load $is $i))))))
           (_ ,[Expr e])
           (_ (apply (global $Pervasives $print_newline) ,mlf-unit))
           (export))

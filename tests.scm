@@ -72,6 +72,7 @@
     (make-test-case "at01"       "]1 2 3@1"                           #f                 "2")
     (make-test-case "at02"       "]((2=1 2 3)@1;7;8)"                 #f                 "7")
     (make-test-case "at03"       "]((2=1 2 3)@2;7;8)"                 #f                 "8")
+    (make-test-case "at04"       "]1 2 3@0 2"                         #f                 "1 3")
     (make-test-case "over01"     "]@{w+1}'1 2 3"                      #f                 "2 3 4")
     (make-test-case "over02"     "]@{1-w}'3 4 5"                      #f                 "-2 -3 -4")
     (make-test-case "over03"     "]2{a+w}'3 4 5"                      #f                 "5 6 7")
