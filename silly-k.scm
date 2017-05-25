@@ -782,7 +782,8 @@
             (cons 'more         (list `(lambda int (lambda int bool))
                                       `(lambda (vector int) (lambda int (vector bool)))
                                       `(lambda int (lambda (vector int) (vector bool)))))
-            (cons 'min          (list `(lambda bool (lambda bool bool))
+            (cons 'min          (list `(lambda (vector int) (vector int))
+                                      `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
             (cons 'max          (list `(lambda bool (lambda bool bool))
                                       `(lambda int (lambda int int))))
@@ -1222,6 +1223,8 @@
                  (unify (list (list '(lambda (typevar T0) (lambda int (vector (typevar T0)))) t^)))) => (lambda (sub)
             (let ([T0 (mk-Type (sub '(typevar T0)))])
               `(primfun make-vector (lambda ,T0 (lambda int (vector ,T0))))))]
+           [(and (equal? pf 'min) (equal? '(lambda (vector int) (vector int)) t^))
+            `(primfun where (lambda (vector int) (vector int)))]
            [else e]))]))
 
   (define-pass type-check : L9 (e) -> L9 ()
@@ -1435,6 +1438,16 @@
                                     (go (cons (car ys^) acc) (cdr ys^) (- i 1)))])))]
                  (go '() xs n))))]
          [(equal? pf 'make-vector) '(lambda (a) (lambda (n) (make-list n a)))]
+         [(equal? pf 'where)
+          '(lambda (xs)
+             (letrec ([go (lambda (xs i acc)
+                            (cond
+                              [(null? xs) (reverse acc)]
+                              [else
+                                (go (cdr xs)
+                                    (+ i 1)
+                                    (append (make-list (car xs) i) acc))]))])
+               (go xs 0 '())))]
          [else (error 'output-scheme "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
@@ -1495,6 +1508,7 @@
          [(equal? pf 'coerce-bool-int) '$identity]
          [(equal? pf 'at) '$at]
          [(equal? pf 'at-vector) '$at_vector]
+         [(equal? pf 'where) '$where]
          [else (error 'output-malfunction "unsupported primitive function" pf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
@@ -1568,6 +1582,21 @@
                         (apply (global $Array $init)
                                (length $is)
                                (lambda ($i) (load $xs (load $is $i))))))
+          ($where (lambda ($xs)
+                    (let
+                      ($n (length $xs))
+                      ($l (apply (global $Array $fold_right) (lambda ($a $b) (+ $a $b)) $xs 0))
+                      ($ys (makevec $l 0))
+                      (rec
+                        ($go (lambda ($o $j $i)
+                               (switch (== $j (load $xs $i))
+                                       (0 (seq
+                                            (store $ys (+ $o $j) $i)
+                                            (apply $go $o (+ $j 1) $i)))
+                                       (_ (switch (== $n (+ $i 1))
+                                            (1 $ys)
+                                            (_ (apply $go (+ $o $j) 0 (+ $i 1)))))))))
+                      (apply $go 0 0 0))))
           (_ ,[Expr e])
           (_ (apply (global $Pervasives $print_newline) ,mlf-unit))
           (export))
