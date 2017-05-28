@@ -725,7 +725,6 @@
 
   (define-pass derive-type-constraints : L6-with-coercion (e) -> L7 ()
     (definitions
-      ; TODO: move the introduction of these type-variables to earlier pass
       (define typevar-counter 0)
       (with-output-language (L7 Type)
         (define fresh-typevar
@@ -927,35 +926,32 @@
   (define (unify cs)
     (if (null? cs)
       (lambda (x) x)
-      (let* ([c (car cs)]
-             [cs^ (cdr cs)]
-             [go (lambda (s t)
-                   (cond
-                     [(equal? s t) (unify cs^)]
-                     [(and (typevar-type? s) (not (occurs s t)))
-                      (cond
-                        [(unify (substitute s t cs^)) => (lambda (f)
-                                                            (lambda (x) (f (substitute s t x))))]
-                        [else #f])]
-                     [(and (typevar-type? t) (not (occurs t s)))
-                      (cond
-                        [(unify (substitute t s cs^)) => (lambda (f)
-                                                           (lambda (x) (f (substitute t s x))))]
-                        [else #f])]
-                     [(and (lambda-type? s) (lambda-type? t))
-                      (unify (append (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t))) cs^))]
-                     [(and (vector-type? s) (vector-type? t))
-                      (unify (append (list (list (cadr s) (cadr t))) cs^))]
-                     [else #f]))])
+      (let* ([c (car cs)] [cs^ (cdr cs)])
         (if (overloaded-constraint? c)
           (letrec ([find-first (lambda (alts)
                                  (cond
                                    [(null? alts) #f]
-                                   [else (cond
-                                           [(unify (append (car alts) cs^))]
-                                           [else (find-first (cdr alts))])]))])
+                                   [(unify (append (car alts) cs^))]
+                                   [else (find-first (cdr alts))]))])
             (find-first (cdr c)))
-          (let ([s (car c)] [t (cadr c)]) (go s t))))))
+          (let ([s (car c)] [t (cadr c)])
+            (cond
+              [(equal? s t) (unify cs^)]
+              [(and (typevar-type? s) (not (occurs s t)))
+               (cond
+                 [(unify (substitute s t cs^)) =>
+                  (lambda (f) (lambda (x) (f (substitute s t x))))]
+                 [else #f])]
+              [(and (typevar-type? t) (not (occurs t s)))
+               (cond
+                 [(unify (substitute t s cs^)) =>
+                  (lambda (f) (lambda (x) (f (substitute t s x))))]
+                 [else #f])]
+              [(and (lambda-type? s) (lambda-type? t))
+               (unify (append (list (list (cadr s) (cadr t)) (list (caddr s) (caddr t))) cs^))]
+              [(and (vector-type? s) (vector-type? t))
+               (unify (append (list (list (cadr s) (cadr t))) cs^))]
+              [else #f]))))))
 
   (define-language
     L8
@@ -1538,7 +1534,6 @@
                     (if (== $n $m)
                       (apply (global $Array $map2) $f $v $w)
                       (apply $length_error ,mlf-unit)))))
-          ($foldr (lambda ($f $b $v) (apply (global $Array $fold_right) $f $v $b)))
           ($reduce (lambda ($f $v)
                      (let
                        ($n (length $v))
