@@ -1221,6 +1221,8 @@
               `(primfun make-vector (lambda ,T0 (lambda int (vector ,T0))))))]
            [(and (equal? pf 'min) (equal? '(lambda (vector int) (vector int)) t^))
             `(primfun where (lambda (vector int) (vector int)))]
+           [(and (equal? pf 'negation) (equal? '(lambda int bool) t^))
+            `(primfun is-zero (lambda int bool))]
            [else e]))]))
 
   (define-pass type-check : L9 (e) -> L9 ()
@@ -1306,15 +1308,38 @@
              [(equal? ut t^) `(program ,e^ ,t)]
              [else (error 'type-check "type error in program" (list e ut) (list e^ t^))])))]))
 
-  (define (underlying-primfun? x)
-    (memq x '(output-scalar output-vector
-              input-scalar input-vector
-              coerce-bool-int
-              equal less more
-              max min
-              negation plus minus multiplication
-              map zip reduce
-              iota first length reshape make-vector at at-vector where)))
+  (define underlying-primfun-map
+    '((output-scalar   . (lambda int int))
+      (output-vector   . (lambda (vector int) (vector int)))
+      (input-scalar    . int)
+      (input-vector    . (vector int))
+      (coerce-bool-int . (lambda bool int))
+      (equal           . (lambda int (lambda int bool)))
+      (less            . (lambda int (lambda int bool)))
+      (more            . (lambda int (lambda int bool)))
+      (max             . (lambda int (lambda int int)))
+      (min             . (lambda int (lambda int int)))
+      (negation        . (lambda bool bool))
+      (is-zero         . (lambda int bool))
+      (plus            . (lambda int (lambda int int)))
+      (minus           . (lambda int (lambda int int)))
+      (multiplication  . (lambda int (lambda int int)))
+      (map             . (lambda (lambda (typevar UP1) (typevar UP2))
+                           (lambda (vector (typevar UP1)) (vector (typevar UP2)))))
+      (zip             . (lambda (lambda (typevar UP1) (lambda (typevar UP2) (typevar UP3)))
+                           (lambda (vector (typevar UP1)) (lambda (vector (typevar UP2)) (vector (typevar UP3))))))
+      (reduce          . (lambda (lambda (typevar UP1) (lambda (typevar UP1) (typevar UP1)))
+                           (lambda (vector (typevar UP1)) (typevar UP1))))
+      (iota            . (lambda int (vector int)))
+      (where           . (lambda (vector int) (vector int)))
+      (first           . (lambda (vector (typevar UP1)) (typevar UP1)))
+      (length          . (lambda (vector (typevar UP1)) int))
+      (reshape         . (lambda (vector (typevar UP1)) (lambda int (vector (typevar UP1)))))
+      (make-vector     . (lambda (typevar UP1) (lambda int (vector (typevar UP1)))))
+      (at              . (lambda (vector (typevar UP1)) (lambda int (typevar UP1))))
+      (at-vector       . (lambda (vector (typevar UP1)) (lambda (vector int) (vector (typevar UP1)))))))
+
+  (define (underlying-primfun? x) (memq x (map car underlying-primfun-map)))
 
   (define-language
     L9-with-underlying-primfuns
@@ -1327,11 +1352,23 @@
       (+ (primfun upf t))))
 
   (define-pass check-underlying-primfuns : L9 (ir) -> L9-with-underlying-primfuns ()
+    (unwrap-Type : Type (t) -> * ()
+      [(vector ,t) `(vector ,(unwrap-Type t))]
+      [(lambda ,t0 ,t1) `(lambda ,(unwrap-Type t0) ,(unwrap-Type t1))]
+      [,bool bool]
+      [,int int])
     (Expr : Expr (expr) -> Expr ()
       [(primfun ,pf ,t)
-       (cond
-         [(underlying-primfun? pf) `(primfun ,pf ,t)]
-         [else (error 'check-underlying-primfuns "unsupported underlying primfun" pf)])]))
+       (let ([t^ (unwrap-Type t)])
+         (cond
+           [(assq pf underlying-primfun-map) => (lambda (x)
+              (cond
+                [(unify (list (list (cdr x) t^))) => (lambda (sub)
+                   `(primfun ,pf ,t))]
+                [else (error 'check-underlying-primfuns
+                             "incorrect type given to primfun" pf t^)]))]
+           [else (error 'check-underlying-primfuns
+                        "unsupported underlying primfun" pf)]))]))
 
   (define-language
     L10
@@ -1400,7 +1437,8 @@
          ['or '(lambda (y) (lambda (x) (or x y)))]
          ['min '(lambda (y) (lambda (x) (min x y)))]
          ['max '(lambda (y) (lambda (x) (max x y)))]
-         ['negation '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
+         ['negation '(lambda (b) (not b))]
+         ['is-zero '(lambda (i) (= 0 i))]
          ['kite '(lambda (a) (lambda (b) b))]
          ['coerce-bool-int '(lambda (b) (if b 1 0))]
          ['iota 'iota]
@@ -1515,6 +1553,7 @@
          ['min '$min]
          ['max '$max]
          ['negation '$not]
+         ['is-zero '$not]
          ['map `(lambda ($f $xs) (apply $map $f $xs))]
          ['reduce `(lambda ($f $xs) (apply $reduce $f $xs))]
          ['zip `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
