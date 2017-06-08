@@ -1306,9 +1306,36 @@
              [(equal? ut t^) `(program ,e^ ,t)]
              [else (error 'type-check "type error in program" (list e ut) (list e^ t^))])))]))
 
+  (define (underlying-primfun? x)
+    (memq x '(output-scalar output-vector
+              input-scalar input-vector
+              coerce-bool-int
+              equal less more
+              max min
+              negation plus minus multiplication
+              map zip reduce
+              iota first length reshape make-vector at at-vector where)))
+
+  (define-language
+    L9-with-underlying-primfuns
+    (extends L9)
+    (terminals
+      (- (primfun (pf)))
+      (+ (underlying-primfun (upf))))
+    (Expr (e)
+      (- (primfun pf t))
+      (+ (primfun upf t))))
+
+  (define-pass check-underlying-primfuns : L9 (ir) -> L9-with-underlying-primfuns ()
+    (Expr : Expr (expr) -> Expr ()
+      [(primfun ,pf ,t)
+       (cond
+         [(underlying-primfun? pf) `(primfun ,pf ,t)]
+         [else (error 'check-underlying-primfuns "unsupported underlying primfun" pf)])]))
+
   (define-language
     L10
-    (extends L9)
+    (extends L9-with-underlying-primfuns)
     (terminals
       (- (int (int))))
     (Type (t)
@@ -1322,8 +1349,8 @@
       (+ (scalar n))
       (- (vector nv t))
       (+ (vector nv))
-      (- (primfun pf t))
-      (+ (primfun pf))
+      (- (primfun upf t))
+      (+ (primfun upf))
       (- (apply e0 e1 t))
       (+ (apply e0 e1))
       (- (lambda (s t0) e t1))
@@ -1336,13 +1363,13 @@
       (- (program e t))
       (+ (program e))))
 
-  (define-pass untype : L9 (e) -> L10 ()
+  (define-pass untype : L9-with-underlying-primfuns (e) -> L10 ()
     (CondArm : CondArm (ca) -> CondArm ())
     (Expr : Expr (e) -> Expr ()
       [(,s ,t) s]
       [(scalar ,n ,t) `(scalar ,n)]
       [(vector ,nv ,t) `(vector ,nv)]
-      [(primfun ,pf ,t) `(primfun ,pf)]
+      [(primfun ,upf ,t) `(primfun ,upf)]
       [(apply ,e0 ,e1 ,t) `(apply ,[Expr e0] ,[Expr e1])]
       [(lambda (,s ,t0) ,e ,t1) `(lambda (,s) ,[Expr e])]
       [(lambda-rec (,s ,t0) ,e ,t1 ,t2) `(lambda-rec (,s) ,[Expr e])]
@@ -1360,27 +1387,27 @@
       [,s s]
       [(scalar ,n) n]
       [(vector ,nv) `(quote ,nv)]
-      [(primfun ,pf)
-       (cond
-         [(equal? pf 'minus) '(lambda (y) (lambda (x) (- x y)))]
-         [(equal? pf 'plus) '(lambda (y) (lambda (x) (+ x y)))]
-         [(equal? pf 'multiplication) '(lambda (y) (lambda (x) (* x y)))]
-         [(equal? pf 'map) '(lambda (f) (lambda (xs) (map f xs)))]
-         [(equal? pf 'equal) '(lambda (y) (lambda (x) (= x y)))]
-         [(equal? pf 'less) '(lambda (y) (lambda (x) (< x y)))]
-         [(equal? pf 'more) '(lambda (y) (lambda (x) (> x y)))]
-         [(equal? pf 'and) '(lambda (y) (lambda (x) (and x y)))]
-         [(equal? pf 'or) '(lambda (y) (lambda (x) (or x y)))]
-         [(equal? pf 'min) '(lambda (y) (lambda (x) (min x y)))]
-         [(equal? pf 'max) '(lambda (y) (lambda (x) (max x y)))]
-         [(equal? pf 'negation) '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
-         [(equal? pf 'kite) '(lambda (a) (lambda (b) b))]
-         [(equal? pf 'coerce-bool-int) '(lambda (b) (if b 1 0))]
-         [(equal? pf 'iota) 'iota]
-         [(equal? pf 'first) 'car]
-         [(equal? pf 'length) 'length]
-         [(equal? pf 'at) '(lambda (xs) (lambda (n) (list-ref xs n)))]
-         [(equal? pf 'at-vector)
+      [(primfun ,upf)
+       (case upf
+         ['minus '(lambda (y) (lambda (x) (- x y)))]
+         ['plus '(lambda (y) (lambda (x) (+ x y)))]
+         ['multiplication '(lambda (y) (lambda (x) (* x y)))]
+         ['map '(lambda (f) (lambda (xs) (map f xs)))]
+         ['equal '(lambda (y) (lambda (x) (= x y)))]
+         ['less '(lambda (y) (lambda (x) (< x y)))]
+         ['more '(lambda (y) (lambda (x) (> x y)))]
+         ['and '(lambda (y) (lambda (x) (and x y)))]
+         ['or '(lambda (y) (lambda (x) (or x y)))]
+         ['min '(lambda (y) (lambda (x) (min x y)))]
+         ['max '(lambda (y) (lambda (x) (max x y)))]
+         ['negation '(lambda (x) (cond [(boolean? x) (not x)] [else (= 0 x)]))]
+         ['kite '(lambda (a) (lambda (b) b))]
+         ['coerce-bool-int '(lambda (b) (if b 1 0))]
+         ['iota 'iota]
+         ['first 'car]
+         ['length 'length]
+         ['at '(lambda (xs) (lambda (n) (list-ref xs n)))]
+         ['at-vector
           '(lambda (xs)
              (lambda (is)
                (letrec ([go (lambda (js acc)
@@ -1389,7 +1416,7 @@
                                 [else (go (cdr js)
                                           (cons (list-ref xs (car js)) acc))]))])
                  (go is '()))))]
-         [(equal? pf 'reduce)
+         ['reduce
           '(lambda (f)
             (lambda (xs)
               (letrec ([go (lambda (acc xs)
@@ -1398,7 +1425,7 @@
                                [else (go ((f acc) (car xs)) (cdr xs))]))])
                 (let ([rs (reverse xs)])
                   (go (car rs) (cdr rs))))))]
-         [(equal? pf 'zip)
+         ['zip
           '(lambda (f)
              (lambda (ys)
                (lambda (xs)
@@ -1407,13 +1434,13 @@
                                   [(and (null? xs) (null? ys)) '()]
                                   [else (cons ((f (car ys)) (car xs)) (go (cdr xs) (cdr ys)))]))])
                    (go xs ys)))))]
-         [(equal? pf 'input-scalar)
+         ['input-scalar
           '(string->number (get-line (current-input-port)))]
-         [(equal? pf 'input-vector)
+         ['input-vector
           '(with-input-from-string (format "(~a)" (get-line (current-input-port))) read)]
-         [(equal? pf 'output-scalar)
+         ['output-scalar
           '(lambda (x) (display x) x)]
-         [(equal? pf 'output-vector)
+         ['output-vector
           '(lambda (x)
              (letrec ([print-vector (lambda (xs)
                                     (display (car xs))
@@ -1423,7 +1450,7 @@
                                         [else (display " ") (print-vector tail)])))])
                (print-vector x))
              x)]
-         [(equal? pf 'reshape)
+         ['reshape
           '(lambda (xs)
              (lambda (n)
                (letrec [(go (lambda (acc ys i)
@@ -1433,8 +1460,8 @@
                                   (let ([ys^ (if (null? ys) xs ys)])
                                     (go (cons (car ys^) acc) (cdr ys^) (- i 1)))])))]
                  (go '() xs n))))]
-         [(equal? pf 'make-vector) '(lambda (a) (lambda (n) (make-list n a)))]
-         [(equal? pf 'where)
+         ['make-vector '(lambda (a) (lambda (n) (make-list n a)))]
+         ['where
           '(lambda (xs)
              (letrec ([go (lambda (xs i acc)
                             (cond
@@ -1444,7 +1471,7 @@
                                     (+ i 1)
                                     (append (make-list (car xs) i) acc))]))])
                (go xs 0 '())))]
-         [else (error 'output-scheme "unsupported primitive function" pf)])]
+         [else (error 'output-scheme "unsupported primitive function" upf)])]
       [(apply ,e0 ,e1) `(,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,s) ,[Expr e])]
       [(lambda-rec (,s) ,e) `(letrec ((,self (lambda (,s) ,[Expr e]))) ,self)]
@@ -1475,37 +1502,37 @@
       [,s (mlf-symbol s)]
       [(scalar ,n) n]
       [(vector ,nv) (make-malfunction-vector nv)]
-      [(primfun ,pf)
-       (cond
-         [(equal? pf 'minus) `(lambda ($y $x) (- $x $y))]
-         [(equal? pf 'plus) `(lambda ($x $y) (+ $x $y))]
-         [(equal? pf 'multiplication) `(lambda ($y $x) (* $x $y))]
-         [(equal? pf 'equal) `(lambda ($y $x) (== $x $y))]
-         [(equal? pf 'less) `(lambda ($y $x) (< $x $y))]
-         [(equal? pf 'more) `(lambda ($y $x) (> $x $y))]
-         [(equal? pf 'and) '$min]
-         [(equal? pf 'or) '$max]
-         [(equal? pf 'min) '$min]
-         [(equal? pf 'max) '$max]
-         [(equal? pf 'negation) '$not]
-         [(equal? pf 'map) `(lambda ($f $xs) (apply $map $f $xs))]
-         [(equal? pf 'reduce) `(lambda ($f $xs) (apply $reduce $f $xs))]
-         [(equal? pf 'zip) `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
-         [(equal? pf 'input-vector) `(apply $read_vector ,mlf-unit)]
-         [(equal? pf 'input-scalar) `(apply $read_scalar ,mlf-unit)]
-         [(equal? pf 'output-scalar) '$write_scalar]
-         [(equal? pf 'output-vector) '$write_vector]
-         [(equal? pf 'kite) '$kite]
-         [(equal? pf 'iota) '$iota]
-         [(equal? pf 'first) '$first]
-         [(equal? pf 'length) '$length]
-         [(equal? pf 'reshape) '$reshape]
-         [(equal? pf 'make-vector) '$make_vector]
-         [(equal? pf 'coerce-bool-int) '$identity]
-         [(equal? pf 'at) '$at]
-         [(equal? pf 'at-vector) '$at_vector]
-         [(equal? pf 'where) '$where]
-         [else (error 'output-malfunction "unsupported primitive function" pf)])]
+      [(primfun ,upf)
+       (case upf
+         ['minus `(lambda ($y $x) (- $x $y))]
+         ['plus `(lambda ($x $y) (+ $x $y))]
+         ['multiplication `(lambda ($y $x) (* $x $y))]
+         ['equal `(lambda ($y $x) (== $x $y))]
+         ['less `(lambda ($y $x) (< $x $y))]
+         ['more `(lambda ($y $x) (> $x $y))]
+         ['and '$min]
+         ['or '$max]
+         ['min '$min]
+         ['max '$max]
+         ['negation '$not]
+         ['map `(lambda ($f $xs) (apply $map $f $xs))]
+         ['reduce `(lambda ($f $xs) (apply $reduce $f $xs))]
+         ['zip `(lambda ($f $ys $xs) (apply $zip $f $ys $xs))]
+         ['input-vector `(apply $read_vector ,mlf-unit)]
+         ['input-scalar `(apply $read_scalar ,mlf-unit)]
+         ['output-scalar '$write_scalar]
+         ['output-vector '$write_vector]
+         ['kite '$kite]
+         ['iota '$iota]
+         ['first '$first]
+         ['length '$length]
+         ['reshape '$reshape]
+         ['make-vector '$make_vector]
+         ['coerce-bool-int '$identity]
+         ['at '$at]
+         ['at-vector '$at_vector]
+         ['where '$where]
+         [else (error 'output-malfunction "unsupported primitive function" upf)])]
       [(apply ,e0 ,e1) `(apply ,(Expr e0) ,(Expr e1))]
       [(lambda (,s) ,e) `(lambda (,[mlf-symbol s]) ,[Expr e])]
       [(lambda-rec (,s) ,e) `(let (rec (,mlf-self (lambda (,[mlf-symbol s]) ,[Expr e]))) ,mlf-self)]
@@ -1599,25 +1626,26 @@
 
   (define (compiler-frontend)
     (untype
-      (type-check
-        (expand-idioms
-          (coerce-values
-            (unify-and-substitute-types
-              (derive-type-constraints
-                (add-coercion-points
-                  (type-lambda-abstractions
-                    (introduce-fresh-typevars
-                      (type-scalars-and-vectors
-                        (remove-lets
-                          (pick-spine-values
-                            (translate-L3-spine-intermediate-into-L3-spine
-                              (introduce-let-spine
-                                (embedd-L3-into-L3-spine-intermediate
-                                  (introduce-lambda-abstractions
-                                    (translate-to-primfuns
-                                      (differentiate-scalars
-                                        (ast-to-Lsrc
-                                          (parse-silly-k)))))))))))))))))))))
+      (check-underlying-primfuns
+        (type-check
+          (expand-idioms
+            (coerce-values
+              (unify-and-substitute-types
+                (derive-type-constraints
+                  (add-coercion-points
+                    (type-lambda-abstractions
+                      (introduce-fresh-typevars
+                        (type-scalars-and-vectors
+                          (remove-lets
+                            (pick-spine-values
+                              (translate-L3-spine-intermediate-into-L3-spine
+                                (introduce-let-spine
+                                  (embedd-L3-into-L3-spine-intermediate
+                                    (introduce-lambda-abstractions
+                                      (translate-to-primfuns
+                                        (differentiate-scalars
+                                          (ast-to-Lsrc
+                                            (parse-silly-k))))))))))))))))))))))
 
 
   (define (compile-to-malfunction)
