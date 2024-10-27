@@ -1,0 +1,151 @@
+diff --git a/LOG b/LOG
+index 152938a1..f1cbd63c 100644
+--- a/LOG
++++ b/LOG
+@@ -2467,3 +2467,6 @@
+     csug/csug.stex bintar/Makefile rpm/Makefile pkg/Makefile
+     wininstall/Makefile wininstall/a6nt.wxs wininstall/i3nt.wxs
+     wininstall/ta6nt.wxs wininstall/ti3nt.wxs
++- added cond-expand from SRFI-0
++    pretty.ss, primdata.ss, syntax.ss,
++    8.ms, syntax.stex
+diff --git a/csug/syntax.stex b/csug/syntax.stex
+index 90795589..03a6fd10 100644
+--- a/csug/syntax.stex
++++ b/csug/syntax.stex
+@@ -1474,6 +1474,23 @@ below.
+   [else (safe-frob x)])
+ \endschemedisplay
+ 
++\section{Feature-based conditional expansion\label{SECTSYNTAXCONDEXPAND}}
++
++Expansion-time feature detection can be done via \scheme{cond-expand},
++which is similar to \scheme{meta-cond} but is portable across a wide
++range of Scheme implementations.
++Chez Scheme defines a single feature: \scheme{chezscheme}
++
++\schemedisplay
++(cond-expand
++  [chezscheme (display "Chez Scheme")]
++  [chicken (display "Chicken Scheme")]
++  [guile (display "Guile Scheme")]
++  [else (display "Some other Scheme")])
++\endschemedisplay
++
++See also: \hyperlink{https://srfi.schemers.org/srfi-0/srfi-0.html}{SRFI-0}
++
+ \section{Aliases\label{SECTSYNTAXALIAS}}
+ 
+ %----------------------------------------------------------------------------
+diff --git a/mats/8.ms b/mats/8.ms
+index 2d978fcc..60cc9a15 100644
+--- a/mats/8.ms
++++ b/mats/8.ms
+@@ -6103,6 +6103,47 @@
+       [else ""]))
+ )
+ 
++(mat cond-expand
++  (error? (cond-expand))
++  (error? (cond-expand (faux 'unreachable)))
++  (eq?
++    (cond-expand
++      (chezscheme 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      (faux 'unreachable)
++      (chezscheme 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      (faux 'unreachable)
++      (else 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      ([or chezscheme faux] 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      ([and chezscheme faux] 'unreachable)
++      (else 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      ([not faux] 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      ([not chezscheme] 'unreachable)
++      (else 'ok))
++    'ok)
++  (eq?
++    (cond-expand
++      ([not (and chezscheme faux)] 'ok))
++    'ok)
++)
++
+ (mat make-compile-time-value
+   (error? ; incorrect number of arguments
+     (let ()
+diff --git a/s/pretty.ss b/s/pretty.ss
+index 3127334d..baacd079 100644
+--- a/s/pretty.ss
++++ b/s/pretty.ss
+@@ -681,6 +681,7 @@
+ (pretty-format 'case '(_ exp #f [bracket (fill 0 k ...) 0 e ...] ...))
+ (pretty-format 'case-lambda '(_ #f [bracket (fill 0 x ...) 0 e ...] ...))
+ (pretty-format 'cond '(_ #f (alt [bracket test '=> 0 exp] [bracket test 0 exp ...]) ...))
++(pretty-format 'cond-expand '(_ #f (alt [bracket test '=> 0 exp] [bracket test 0 exp ...]) ...))
+ (pretty-format 'critical-section '(_ #f e ...))
+ (pretty-format 'datum '(_ x))
+ (pretty-format 'define '(_ (fill 0 x ...) #f e ...))
+diff --git a/s/primdata.ss b/s/primdata.ss
+index 4d61e8fb..85b7cd5d 100644
+--- a/s/primdata.ss
++++ b/s/primdata.ss
+@@ -1039,6 +1039,7 @@
+   (alias [flags])
+   (annotation-options [flags])
+   (case [flags])
++  (cond-expand [flags])
+   (constructor [flags])
+   (critical-section [flags])
+   (datum [flags])
+diff --git a/s/syntax.ss b/s/syntax.ss
+index ec5af6e6..cafd7912 100644
+--- a/s/syntax.ss
++++ b/s/syntax.ss
+@@ -9365,6 +9365,31 @@
+   (lambda (x)
+     (syntax-error x "misplaced aux keyword")))
+ 
++;;; cond-expand from SRFI-0: https://srfi.schemers.org/srfi-0/srfi-0.html
++(define-syntax cond-expand
++  (lambda (x)
++    (syntax-case x (and else not or)
++      [(_) (syntax-error x "unfulfilled")]
++      [(_ [else body ...]) #'(begin body ...)]
++      [(_ [(and) body ...] more ...) #'(begin body ...)]
++      [(_ [(and test rest ...) body ...] more ...)
++       #'(cond-expand
++           (test (cond-expand ([and rest ...] body ...) more ...))
++           more ...)]
++      [(_ [(or) body ...] more ...) #'(cond-expand more ...)]
++      [(_ [(or test rest ...) body ...] more ...)
++       #'(cond-expand
++           (test (begin body ...))
++           (else (cond-expand ([or rest ...] body ...) more ...)))]
++      [(_ [(not test) body ...] more ...)
++       #'(cond-expand
++           (test (cond-expand more ...))
++           (else body ...))]
++      [(_ [name body ...] more ...)
++       (if (eq? 'chezscheme (syntax->datum #'name))
++           #'(begin body ...)
++           #'(cond-expand more ...))])))
++
+ ;;; (define-record name pname (field ...))
+ ;;; (define-record name pname (field ...)
+ ;;;   ((field init) ...))
