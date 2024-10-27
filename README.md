@@ -2,7 +2,8 @@
 [![Build, test and push image](https://github.com/rootmos/silly-k/actions/workflows/build-test-push.yaml/badge.svg)](https://github.com/rootmos/silly-k/actions/workflows/build-test-push.yaml)
 
 `silly-k` is an experimental language inspired by [K](https://web.archive.org/web/20230411111549/https://kparc.com/k.txt)
-and [APL](https://en.wikipedia.org/wiki/APL_(programming_language)).
+and [APL](https://en.wikipedia.org/wiki/APL_(programming_language)),
+with an [accompanying post](https://rootmos.io/2017-06-08-implementing-a-k-like-language-targeting-malfunction.html).
 
 The silly prefix is meant to indicate that this is project is nothing more than an experiment
 to see how these languages would perform when described in lambda calculus terms.
